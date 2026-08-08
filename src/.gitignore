@@ -1,0 +1,9 @@
+bin/
+data/
+frontend/dist/
+frontend/node_modules/
+*.exe
+*.db
+*.db-wal
+*.db-shm
+.DS_Store
