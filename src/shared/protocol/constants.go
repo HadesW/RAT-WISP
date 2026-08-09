@@ -95,6 +95,7 @@ const (
 	ProtocolHTTP  = "http"
 	ProtocolHTTPS = "https"
 	ProtocolKCP   = "kcp"
+	ProtocolQUIC  = "quic"
 )
 
 // Sleep/jitter boundaries shared by the agent, the payload generator and the
@@ -108,7 +109,7 @@ const (
 
 // SupportedListenerProtocols returns the list of protocols that can be created.
 func SupportedListenerProtocols() []string {
-	return []string{ProtocolTCP, ProtocolHTTP, ProtocolHTTPS, ProtocolKCP}
+	return []string{ProtocolTCP, ProtocolHTTP, ProtocolHTTPS, ProtocolKCP, ProtocolQUIC}
 }
 
 // Task status

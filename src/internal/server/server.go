@@ -576,6 +576,8 @@ func (s *Server) createListener(config *db.ListenerRow) (Listener, error) {
 		return newTCPListener(s, config), nil
 	case protocol.ProtocolKCP:
 		return newKCPListener(s, config), nil
+	case protocol.ProtocolQUIC:
+		return newQUICListener(s, config), nil
 	default:
 		return nil, fmt.Errorf("unsupported listener protocol: %s", config.Protocol)
 	}

@@ -104,11 +104,11 @@ func TestCreateHostAutoDetected(t *testing.T) {
 func TestSupportedProtocols(t *testing.T) {
 	ls, _ := newTestListenerService(t)
 	protos := ls.GetSupportedProtocols()
-	if len(protos) != 4 {
-		t.Fatalf("protocols = %v, want 4", protos)
+	if len(protos) != 5 {
+		t.Fatalf("protocols = %v, want 5", protos)
 	}
 	joined := strings.Join(protos, ",")
-	for _, p := range []string{"tcp", "http", "https", "kcp"} {
+	for _, p := range []string{"tcp", "http", "https", "kcp", "quic"} {
 		if !strings.Contains(joined, p) {
 			t.Errorf("missing protocol %s in %v", p, protos)
 		}

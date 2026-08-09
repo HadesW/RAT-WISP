@@ -157,6 +157,7 @@ export function ListenersPanel() {
 const PROTOCOL_DEFAULT_PORTS: Record<string, string> = {
   tcp: '4444',
   kcp: '5555',
+  quic: '6666',
   http: '80',
   https: '443',
 }
@@ -206,6 +207,7 @@ function AddListenerDialog({ onClose }: { onClose: () => void }) {
           <option value="http">HTTP</option>
           <option value="https">HTTPS</option>
           <option value="kcp">KCP</option>
+          <option value="quic">QUIC</option>
         </select>
         <label>{t('dlgHost')}</label>
         <input value={host} onChange={e => setHost(e.target.value)} placeholder={t('dlgHostPlaceholder')} />

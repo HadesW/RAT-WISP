@@ -63,7 +63,7 @@ func agentMain(cli bool) error {
 		flag.StringVar(&serverHost, "server", "", "Server host (overrides compiled config)")
 		flag.IntVar(&serverPort, "port", 0, "Server port (overrides compiled config)")
 		flag.BoolVar(&useTLS, "tls", false, "Use TLS")
-		flag.StringVar(&transportName, "transport", "", "Transport: tcp, kcp or http (overrides compiled config)")
+		flag.StringVar(&transportName, "transport", "", "Transport: tcp, kcp, quic or http (overrides compiled config)")
 		flag.IntVar(&sleep, "sleep", 5000, "Sleep interval in ms")
 		flag.IntVar(&jitter, "jitter", 0, "Jitter percentage")
 		flag.StringVar(&psk, "psk", "", "Pre-shared key (must match the listener PSK)")
@@ -84,7 +84,7 @@ func agentMain(cli bool) error {
 		} else {
 			cfg, err = config.Load()
 			if err != nil {
-				return fmt.Errorf("no server configuration compiled into this binary: %w\n  run with: agent.exe -server HOST -port PORT [-tls] [-transport tcp|kcp|http] [-sleep 5000] [-fingerprint <cert pin>]", err)
+				return fmt.Errorf("no server configuration compiled into this binary: %w\n  run with: agent.exe -server HOST -port PORT [-tls] [-transport tcp|kcp|quic|http] [-sleep 5000] [-fingerprint <cert pin>]", err)
 			}
 		}
 	} else {
@@ -132,6 +132,8 @@ func agentMain(cli bool) error {
 		tp = transport.NewHTTPTransport(cfg.ServerHost, cfg.ServerPort, cfg.UseTLS, agentID, cfg.RSAPublicKey, cfg.ServerFingerprint)
 	case "kcp":
 		tp = transport.NewKCPTransport(cfg.ServerHost, cfg.ServerPort, agentID, cfg.RSAPublicKey)
+	case "quic":
+		tp = transport.NewQUICTransport(cfg.ServerHost, cfg.ServerPort, agentID, cfg.RSAPublicKey, cfg.ServerFingerprint)
 	default:
 		tp = &transport.TCPTransport{
 			Host:        cfg.ServerHost,
@@ -175,6 +177,9 @@ func agentMain(cli bool) error {
 	case *transport.KCPTransport:
 		sessionKeys = t.Keys
 		rsaPubPEM = t.RSAPubPEM
+	case *transport.QUICTransport:
+		sessionKeys = t.Keys
+		rsaPubPEM = t.RSAPubPEM
 	}
 	dispatcher.SetRCPClient(&transport.RCPClient{
 		Host:      cfg.ServerHost,
@@ -206,6 +211,9 @@ func agentMain(cli bool) error {
 			rc.Keys = t.Keys
 			rc.RSAPubPEM = t.RSAPubPEM
 		case *transport.KCPTransport:
+			rc.Keys = t.Keys
+			rc.RSAPubPEM = t.RSAPubPEM
+		case *transport.QUICTransport:
 			rc.Keys = t.Keys
 			rc.RSAPubPEM = t.RSAPubPEM
 		}
