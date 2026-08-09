@@ -2,6 +2,10 @@
 
 Wisp 是一个跨平台 C2 管理控制台（也可作为远程管理工具Remote Administration Tool使用），基于 Go + Wails v3 + React + TypeScript 构建。支持多协议监听、Agent 远程管理、远程桌面、文件管理等功能。
 
+## 文档
+
+- [English README](docs/README_EN.md)
+
 ## 截图
 
 ![主面板](pic/2026-08-09_001034.png)
@@ -57,10 +61,6 @@ make agent-all          # 或 build.bat agent-all
 ./bin/wisp              # macOS/Linux
 bin\wisp.exe            # Windows 可直接双击
 ```
-
-## 文档
-
-- [English README](docs/README_EN.md)
 
 ## 免责声明
 
