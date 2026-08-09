@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -149,9 +150,16 @@ type fsEntry struct {
 	Mod   string `json:"mod"` // modification time RFC3339
 }
 
+// rootsMarker is the special path the File Explorer's "home" button sends to
+// list the filesystem roots (drives on Windows, "/" elsewhere).
+const rootsMarker = "__roots__"
+
 // execLsJSON returns a structured directory listing for the File Explorer.
 func (d *Dispatcher) execLsJSON(argsJSON string) string {
 	path := extractPathArg(argsJSON)
+	if path == rootsMarker {
+		return listRootsJSON()
+	}
 	if path == "" {
 		if d.cwd != "" {
 			path = d.cwd
@@ -188,6 +196,36 @@ func (d *Dispatcher) execLsJSON(argsJSON string) string {
 	out, err := json.Marshal(map[string]any{
 		"cwd":     cwd,
 		"path":    absPath,
+		"entries": items,
+	})
+	if err != nil {
+		return errorJSON("marshal: " + err.Error())
+	}
+	return string(out)
+}
+
+// listRootsJSON returns the filesystem roots for the File Explorer's "home"
+// view: drive letters on Windows ("C:\", "D:\", ...) or the single "/" root on
+// Unix. The returned "path" is the marker itself so the frontend knows it is
+// showing the roots view.
+func listRootsJSON() string {
+	cwd, _ := os.Getwd()
+	items := make([]fsEntry, 0, 8)
+
+	if runtime.GOOS == "windows" {
+		for d := 'A'; d <= 'Z'; d++ {
+			root := fmt.Sprintf("%c:\\", d)
+			if _, err := os.Stat(root); err == nil {
+				items = append(items, fsEntry{Name: root, IsDir: true})
+			}
+		}
+	} else {
+		items = append(items, fsEntry{Name: "/", IsDir: true})
+	}
+
+	out, err := json.Marshal(map[string]any{
+		"cwd":     cwd,
+		"path":    rootsMarker,
 		"entries": items,
 	})
 	if err != nil {
@@ -254,6 +292,9 @@ func (d *Dispatcher) execExecFile(argsJSON string) string {
 		return "error: no file specified"
 	}
 	cmd := exec.Command(path)
+	// Suppress the console flash when launching console-mode children from the
+	// windowless agent (CREATE_NO_WINDOW); GUI programs are unaffected.
+	cmd.SysProcAttr = noWindowAttr()
 	if err := cmd.Start(); err != nil {
 		return "error: " + err.Error()
 	}
@@ -268,24 +309,39 @@ func errorJSON(msg string) string {
 }
 
 // extractPathArg parses an args JSON of the form {"path":"..."} or a plain path.
+// The returned path is normalized for the agent's platform (see normalizePath).
 func extractPathArg(argsJSON string) string {
-	if argsJSON == "" {
+	var p string
+	if argsJSON != "" {
+		var args map[string]string
+		if json.Unmarshal([]byte(argsJSON), &args) == nil {
+			if v := args["path"]; v != "" {
+				p = v
+			} else if v := args["file"]; v != "" {
+				p = v
+			}
+		}
+		// Fall back to treating the raw args as a path
+		if p == "" && !strings.HasPrefix(strings.TrimSpace(argsJSON), "{") {
+			p = strings.TrimSpace(argsJSON)
+		}
+	}
+	return normalizePath(p)
+}
+
+// normalizePath adapts a path from the operator UI to the agent's platform. The
+// frontend joins paths with a platform-dependent separator, but a Windows-style
+// backslash sent to a Linux agent becomes part of the file name (Linux treats
+// '\' as a valid character) — so "/home/user\file" silently fails to open.
+// On non-Windows platforms every backslash is converted to '/'.
+func normalizePath(p string) string {
+	if p == "" {
 		return ""
 	}
-	var args map[string]string
-	if json.Unmarshal([]byte(argsJSON), &args) == nil {
-		if p := args["path"]; p != "" {
-			return p
-		}
-		if p := args["file"]; p != "" {
-			return p
-		}
+	if runtime.GOOS != "windows" {
+		p = strings.ReplaceAll(p, "\\", "/")
 	}
-	// Fall back to treating the raw args as a path
-	if !strings.HasPrefix(strings.TrimSpace(argsJSON), "{") {
-		return strings.TrimSpace(argsJSON)
-	}
-	return ""
+	return p
 }
 
 // hasPathTraversal rejects absolute path separators used for ".." escapes.

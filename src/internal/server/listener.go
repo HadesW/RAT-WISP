@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xtaci/kcp-go/v5"
+
 	"github.com/user/wisp/internal/db"
 	"github.com/user/wisp/shared/protocol"
 )
@@ -233,6 +235,17 @@ const connIdleTimeout = 15 * time.Second
 // down and its rate-limit slot released as soon as the exchange completes.
 func handleConnection(s *Server, listenerID string, conn net.Conn) {
 	defer conn.Close()
+	if _, ok := conn.(*kcp.UDPSession); ok {
+		// KCP reliability: kcp-go's Close() flushes once but drops anything the
+		// peer has not acknowledged — on UDP a lost first datagram is never
+		// retransmitted, so short-lived agents silently lost RegisterAck/Task
+		// replies → read timeout → re-register → rate-limited storm. Holding the
+		// session open briefly after replying lets the KCP updater retransmit
+		// unacknowledged data. (defer LIFO: this runs before conn.Close().)
+		defer func() {
+			time.Sleep(250 * time.Millisecond)
+		}()
+	}
 
 	conn.SetReadDeadline(time.Now().Add(connIdleTimeout))
 	pkt, err := protocol.ReadPacket(conn)

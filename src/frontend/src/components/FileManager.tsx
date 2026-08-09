@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { callByName } from '../wails'
 import { useT } from '../i18n'
+import { useSessionStore } from '../stores/useSessionStore'
 import { ContextMenu, ContextMenuItem } from './ContextMenu'
 import { ConfirmDialog } from './ConfirmDialog'
 
@@ -43,10 +44,16 @@ interface TransferRow {
 
 interface MenuState { x: number; y: number; items: ContextMenuItem[] }
 
-function joinPath(path: string, name: string): string {
+// joinPath joins a directory and an entry name using the target platform's
+// separator. Using a fixed backslash broke Linux paths ("/home/user\file" is a
+// valid single file name on Linux, so downloads silently failed).
+function joinPath(path: string, name: string, sep: string): string {
   if (!path) return name
-  return path.replace(/[\\/]+$/, '') + '\\' + name
+  return path.replace(/[\\/]+$/, '') + sep + name
 }
+
+// localSep is the operator machine's own path separator.
+const localSep = navigator.userAgent.includes('Windows') ? '\\' : '/'
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -57,8 +64,18 @@ function formatSize(bytes: number): string {
 
 export function FileManager({ sessionId }: { sessionId: string | null }) {
   const t = useT()
-  // Local (operator) side
-  const [localPath, setLocalPath] = useState('C:\\Users')
+  // Path separator of the remote (agent) platform: backslash on Windows,
+  // forward slash everywhere else.
+  const sessions = useSessionStore(s => s.sessions)
+  const remoteSep = useMemo(() => {
+    const os = (sessions.find(s => s.id === sessionId)?.os || '').toLowerCase()
+    return os.includes('windows') ? '\\' : '/'
+  }, [sessions, sessionId])
+
+  // Local (operator) side. localPath === '' means the drive/roots view
+  // ("This PC"); double-clicking a drive enters it. The last visited local
+  // directory is remembered across sessions via localStorage.
+  const [localPath, setLocalPath] = useState(() => localStorage.getItem('wisp-local-path') || '')
   const [localEntries, setLocalEntries] = useState<LocalEntry[]>([])
   const [localSelected, setLocalSelected] = useState<Set<string>>(new Set())
   const [localError, setLocalError] = useState('')
@@ -78,13 +95,12 @@ export function FileManager({ sessionId }: { sessionId: string | null }) {
   const paths = useRef<Record<string, string>>({})
 
   const refreshLocal = useCallback(async () => {
-    if (!localPath) return
     setLocalError('')
     try {
-      const data = await callBackend(
-        'github.com/user/wisp/services.SessionService.ListLocalDir',
-        localPath,
-      )
+      // localPath === '' = roots view ("This PC"): list local drives/roots.
+      const data = localPath
+        ? await callBackend('github.com/user/wisp/services.SessionService.ListLocalDir', localPath)
+        : await callBackend('github.com/user/wisp/services.SessionService.ListLocalDrives')
       if (Array.isArray(data)) {
         setLocalEntries(data)
         setLocalSelected(new Set())
@@ -121,7 +137,8 @@ export function FileManager({ sessionId }: { sessionId: string | null }) {
       }
       setRemoteEntries(parsed.entries || [])
       setRemoteSelected(new Set())
-      const resolved = parsed.path || dir
+      // The roots marker is shown as an empty path (home view) in the box.
+      const resolved = parsed.path && parsed.path !== '__roots__' ? parsed.path : ''
       setRemotePath(resolved)
       paths.current[sessionId] = resolved
     } catch (e) {
@@ -144,27 +161,44 @@ export function FileManager({ sessionId }: { sessionId: string | null }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId])
 
+  // Refresh the local pane automatically whenever the local directory changes
+  // (double-click / up / home / remembered path). Without this, entering a
+  // folder only updated the address box and required a manual refresh.
+  useEffect(() => {
+    refreshLocal()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localPath])
+
   useEffect(() => {
     refreshTransfers()
     const t = setInterval(refreshTransfers, 3000)
     return () => clearInterval(t)
   }, [refreshTransfers])
 
+  // setLocalPathAndRemember sets the local directory and persists it.
+  const setLocalPathAndRemember = (p: string) => {
+    setLocalPath(p)
+    try { localStorage.setItem('wisp-local-path', p) } catch { /* ignore */ }
+  }
+
   const goUpLocal = () => {
+    // "" (roots view) -> disabled; "C:\" -> "" (back to drives); "C:\a" -> "C:\"
+    if (!localPath) return
     const i = Math.max(localPath.lastIndexOf('\\'), localPath.lastIndexOf('/'))
-    setLocalPath(i > 0 ? localPath.slice(0, i) : '')
+    setLocalPathAndRemember(i > 0 ? localPath.slice(0, i) : '')
   }
   const goUpRemote = () => {
     if (!remotePath) return
     const i = Math.max(remotePath.lastIndexOf('\\'), remotePath.lastIndexOf('/'))
-    setRemotePath(i > 0 ? remotePath.slice(0, i) : '')
+    const parent = i > 0 ? remotePath.slice(0, i) : ''
+    loadRemote(parent)
   }
 
   const downloadSelected = async () => {
     if (!sessionId || remoteSelected.size === 0) return
     for (const name of remoteSelected) {
-      const remote = joinPath(remotePath, name)
-      const local = joinPath(localPath, name)
+      const remote = joinPath(remotePath, name, remoteSep)
+      const local = joinPath(localPath, name, localSep)
       await callBackend('github.com/user/wisp/services.SessionService.DownloadFile', sessionId, remote, local)
     }
     refreshTransfers()
@@ -173,8 +207,8 @@ export function FileManager({ sessionId }: { sessionId: string | null }) {
   const uploadSelected = async () => {
     if (!sessionId || localSelected.size === 0) return
     for (const name of localSelected) {
-      const local = joinPath(localPath, name)
-      const remote = joinPath(remotePath, name)
+      const local = joinPath(localPath, name, localSep)
+      const remote = joinPath(remotePath, name, remoteSep)
       await callBackend('github.com/user/wisp/services.SessionService.UploadFile', sessionId, local, remote)
     }
     refreshTransfers()
@@ -187,8 +221,12 @@ export function FileManager({ sessionId }: { sessionId: string | null }) {
     return next
   }
 
-  const enterRemoteDir = (name: string) => loadRemote(joinPath(remotePath, name))
-  const enterLocalDir = (name: string) => setLocalPath(joinPath(localPath, name))
+  const enterRemoteDir = (name: string) => loadRemote(joinPath(remotePath, name, remoteSep))
+  const enterLocalDir = (name: string) => {
+    // In the roots view, entries are drive roots like "C:\" — enter directly.
+    if (!localPath) { setLocalPathAndRemember(name); return }
+    setLocalPathAndRemember(joinPath(localPath, name, localSep))
+  }
 
   const openLocalMenu = (e: React.MouseEvent, name: string, isDir: boolean) => {
     e.preventDefault()
@@ -221,7 +259,7 @@ export function FileManager({ sessionId }: { sessionId: string | null }) {
             {
               label: t('filesDelete'),
               danger: true,
-              onClick: () => setConfirmDelete({ name, path: joinPath(remotePath, name) }),
+              onClick: () => setConfirmDelete({ name, path: joinPath(remotePath, name, remoteSep) }),
             },
           ],
     })
@@ -240,6 +278,7 @@ export function FileManager({ sessionId }: { sessionId: string | null }) {
       <div className="fm-pane-toolbar">
         <div className="fm-side">
           <span className="fm-side-label">{t('filesLocal')}</span>
+          <button className="toolbar-btn" onClick={() => setLocalPathAndRemember('')} title={t('filesHome')}>⌂</button>
           <button className="toolbar-btn" onClick={goUpLocal} title={t('filesUp')}>↑</button>
           <button className="toolbar-btn" onClick={refreshLocal} title={t('filesRefresh')}>⟳</button>
           <input
@@ -257,6 +296,7 @@ export function FileManager({ sessionId }: { sessionId: string | null }) {
         </div>
         <div className="fm-side">
           <span className="fm-side-label">{t('filesAgent')}</span>
+          <button className="toolbar-btn" onClick={() => loadRemote('')} title={t('filesHome')}>⌂</button>
           <button className="toolbar-btn" onClick={goUpRemote} title={t('filesUp')}>↑</button>
           <button className="toolbar-btn" onClick={() => loadRemote(remotePath)} title={t('filesRefresh')}>⟳</button>
           <input

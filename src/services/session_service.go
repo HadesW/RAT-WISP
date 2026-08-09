@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -148,6 +149,11 @@ func (ss *SessionService) RerunTask(taskID string) (*db.TaskRow, error) {
 // FileList sends a structured directory listing command and returns the task ID
 // whose result (JSON) can be consumed via session:output.
 func (ss *SessionService) FileList(sessionID, path string) (string, error) {
+	// An empty path requests the filesystem roots view (drives on Windows, "/"
+	// on Unix) via the "__roots__" marker understood by the agent.
+	if path == "" {
+		path = "__roots__"
+	}
 	args, _ := json.Marshal(map[string]string{"path": path})
 	return ss.createFileTask(sessionID, int(protocol.CmdLsJSON), string(args), "ls")
 }
@@ -293,6 +299,23 @@ func (ss *SessionService) GetLocalHomeDir() (string, error) {
 		return "C:\\", nil
 	}
 	return home, nil
+}
+
+// ListLocalDrives returns the root entries of the operator's filesystem — the
+// drive list on Windows ("This PC" view) and a single "/" root on Unix. Used by
+// the file manager's local pane when the user is at the top level.
+func (ss *SessionService) ListLocalDrives() ([]LocalEntry, error) {
+	if runtime.GOOS == "windows" {
+		var drives []LocalEntry
+		for d := 'A'; d <= 'Z'; d++ {
+			root := fmt.Sprintf("%c:\\", d)
+			if _, err := os.Stat(root); err == nil {
+				drives = append(drives, LocalEntry{Name: root, IsDir: true})
+			}
+		}
+		return drives, nil
+	}
+	return []LocalEntry{{Name: "/", IsDir: true}}, nil
 }
 
 // ListLocalDir returns a directory listing of the operator's local filesystem
@@ -482,6 +505,18 @@ func (ss *SessionService) RemoteDesktopInput(sessionID, inputJSON string) error 
 	}
 	_, err := ss.serverSvc.GetDB().CreateTask(sessionID, int(protocol.CmdRDPInput), inputJSON)
 	return err
+}
+
+// RunCommand sends a one-shot console command (e.g. sysinfo, ps, kill) and
+// returns the task ID whose result can be polled with GetTask. This mirrors
+// createFileTask so tab-based views (system info / process manager) do not have
+// to scrape the history for the latest task.
+func (ss *SessionService) RunCommand(sessionID, command, args string) (string, error) {
+	cmdID := parseCommand(command)
+	if cmdID == 0 {
+		return "", fmt.Errorf("unknown command: %s", command)
+	}
+	return ss.createFileTask(sessionID, int(cmdID), args, command)
 }
 
 // SendShell is a convenience method for shell commands.

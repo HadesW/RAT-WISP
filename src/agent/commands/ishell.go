@@ -98,6 +98,10 @@ func (d *Dispatcher) execIshellOpen(argsJSON string) string {
 	}
 
 	cmd := exec.Command(name)
+	// CREATE_NO_WINDOW keeps powershell.exe/pwsh from flashing a black console:
+	// the agent runs windowless (GUI subsystem), so children would otherwise
+	// open a new console window on every interactive session.
+	cmd.SysProcAttr = noWindowAttr()
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return "error: stdin pipe: " + err.Error()

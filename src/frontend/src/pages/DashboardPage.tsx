@@ -7,6 +7,8 @@ import { useI18nStore, useT, type Lang } from '../i18n'
 import { SessionTable } from '../components/SessionTable'
 import { Console } from '../components/Console'
 import { ShellView } from '../components/ShellView'
+import { SysInfoView } from '../components/SysInfoView'
+import { ProcessView } from '../components/ProcessView'
 import { ListenersPanel } from '../components/ListenersPanel'
 import { FileManager } from '../components/FileManager'
 import { LogView } from '../components/LogView'
@@ -36,6 +38,9 @@ export function DashboardPage() {
     const tb = tabs.find(x => x.id === id)
     if (tb?.kind === 'shell' && tb.sessionId) {
       callByName('github.com/user/wisp/services.SessionService.IshellClose', tb.sessionId)
+      // Forget the stored shell state so reopening the tab starts fresh
+      useSessionStore.getState().setIshell(tb.sessionId, null)
+      useSessionStore.getState().setIshellLines(tb.sessionId, [])
     }
     closeTab(id)
   }
@@ -162,6 +167,8 @@ export function DashboardPage() {
             {active.kind === 'listeners' && <ListenersPanel />}
             {active.kind === 'console' && <Console />}
             {active.kind === 'shell' && active.sessionId && <ShellView sessionId={active.sessionId} />}
+            {active.kind === 'sysinfo' && active.sessionId && <SysInfoView sessionId={active.sessionId} />}
+            {active.kind === 'processes' && active.sessionId && <ProcessView sessionId={active.sessionId} />}
             {active.kind === 'files' && <FileManager sessionId={active.sessionId || null} />}
             {active.kind === 'tasks' && <TaskView />}
             {active.kind === 'transfers' && <FileTransferView />}

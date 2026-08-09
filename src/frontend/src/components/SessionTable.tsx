@@ -245,6 +245,15 @@ export function SessionTable() {
         {
           label: t('menuComputerManagement'),
           submenu: [
+            {
+              label: t('menuComputerInfo'),
+              onClick: () => openTab({ kind: 'sysinfo', sessionId: s.id, title: `${s.hostname} — ${t('menuComputerInfo')}`, closable: true }),
+            },
+            {
+              label: t('menuProcessManagement'),
+              onClick: () => openTab({ kind: 'processes', sessionId: s.id, title: `${s.hostname} — ${t('menuProcessManagement')}`, closable: true }),
+            },
+            { separator: true },
             { label: t('menuHostReboot'), onClick: () => hostAction(s, 'reboot') },
             { label: t('menuHostShutdown'), onClick: () => hostAction(s, 'shutdown') },
             { separator: true },

@@ -314,9 +314,30 @@ func agentMain(cli bool) error {
 	return nil
 }
 
+// generateID builds a purely random 8-byte session ID (16 hex chars). It is
+// opaque, unguessable and stable for the life of the process.
+//
+// The earlier machine-fingerprint scheme (sha256(hostname|username|ip)[:6] +
+// 2 random bytes) was reverted: the fingerprint included the internal IP, which
+// changes when the host reconnects on a different network — breaking ID
+// stability across restarts. Readability is already covered by the hostname /
+// username columns in the UI, so the ID only needs uniqueness and entropy.
+//
+// CRITICAL: the wire format is fixed at 8 raw bytes (16 hex chars) — checkin
+// payloads and the RCP handshake both slice exactly 8 bytes. Producing a
+// 16-byte ID here made every checkin use a truncated ID that never matched the
+// registered session, causing an endless register → unknown-agent → re-register
+// loop. Never exceed 8 bytes.
 func generateID() string {
 	b := make([]byte, 8)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		// crypto/rand never fails on supported platforms; if it ever does,
+		// fall back to a time-seeded value so the agent can still boot.
+		seed := time.Now().UnixNano()
+		for i := 0; i < 8; i++ {
+			b[i] = byte(seed >> (8 * i))
+		}
+	}
 	return hex.EncodeToString(b)
 }
 

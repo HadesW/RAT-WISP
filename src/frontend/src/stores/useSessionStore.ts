@@ -47,6 +47,15 @@ export interface ConsoleEntry {
   timestamp: string
 }
 
+// ShellLine is one line of an interactive shell tab (ShellView). It lives in
+// the store so switching tabs (which unmounts the view) does not lose the
+// shell type or its output history.
+export interface ShellLine {
+  type: 'input' | 'output' | 'info' | 'error'
+  content: string
+  time: string
+}
+
 interface SessionState {
   sessions: SessionInfo[]
   selectedId: string | null
@@ -54,6 +63,7 @@ interface SessionState {
   consoleHistory: Record<string, string[]> // per-session command history
   consoleDraft: Record<string, string>     // per-session unsent input
   ishell: Record<string, string | null>    // per-session interactive shell name
+  ishellLines: Record<string, ShellLine[]> // per-session shell output history
   setSessions: (sessions: SessionInfo[]) => void
   setSelected: (id: string | null) => void
   addConsoleEntry: (sessionId: string, entry: ConsoleEntry) => void
@@ -61,6 +71,8 @@ interface SessionState {
   setDraft: (sessionId: string, text: string) => void
   clearConsole: (sessionId: string) => void
   setIshell: (sessionId: string, shell: string | null) => void
+  setIshellLines: (sessionId: string, lines: ShellLine[]) => void
+  appendIshellLine: (sessionId: string, line: ShellLine) => void
   initEventListeners: () => void
 }
 
@@ -71,6 +83,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   consoleHistory: {},
   consoleDraft: {},
   ishell: {},
+  ishellLines: {},
 
   setSessions: (sessions) => set({ sessions }),
   setSelected: (id) => set({ selectedId: id }),
@@ -92,6 +105,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   setIshell: (sessionId, shell) => set((state) => ({
     ishell: { ...state.ishell, [sessionId]: shell },
+  })),
+
+  setIshellLines: (sessionId, lines) => set((state) => ({
+    ishellLines: { ...state.ishellLines, [sessionId]: lines },
+  })),
+
+  appendIshellLine: (sessionId, line) => set((state) => ({
+    ishellLines: {
+      ...state.ishellLines,
+      [sessionId]: [...(state.ishellLines[sessionId] || []), line],
+    },
   })),
 
   addConsoleEntry: (sessionId, entry) => set((state) => {

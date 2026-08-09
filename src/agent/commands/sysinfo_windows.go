@@ -13,7 +13,9 @@ import (
 )
 
 func listProcessesPlatform() string {
-	out, err := exec.Command("tasklist", "/FO", "CSV", "/NH").CombinedOutput()
+	c := exec.Command("tasklist", "/FO", "CSV", "/NH")
+	c.SysProcAttr = noWindowAttr()
+	out, err := c.CombinedOutput()
 	if err != nil {
 		return fmt.Sprintf("error: %v", err)
 	}

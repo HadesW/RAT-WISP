@@ -16,7 +16,7 @@ func buildRegPayload(t *testing.T, s *Server, psk string) []byte {
 		t.Fatalf("gen keys: %v", err)
 	}
 	reg, _ := jsonMarshal(map[string]any{
-		"id": "agent-psk-1", "hostname": "h", "username": "u",
+		"id": testAgentID, "hostname": "h", "username": "u",
 		"internal_ip": "10.0.0.9", "os": "windows", "arch": "amd64",
 		"sleep": 5000, "jitter": 0, "psk": psk,
 	})
@@ -104,7 +104,7 @@ func TestPSKRegistrationCreatesSession(t *testing.T) {
 	if _, _, err := s.processRegistration(buildRegPayload(t, s, "k"), ln.ID, "5.6.7.8"); err != nil {
 		t.Fatalf("register: %v", err)
 	}
-	row, err := s.db.GetSession("agent-psk-1")
+	row, err := s.db.GetSession(testAgentID)
 	if err != nil {
 		t.Fatalf("session not created: %v", err)
 	}

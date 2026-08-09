@@ -4,6 +4,10 @@ import (
 	"testing"
 )
 
+// testAgentID is a valid 8-byte wire agent id (16 hex chars), used by tests
+// that register a session. The server rejects any other length.
+const testAgentID = "1234567890abcdef"
+
 func TestAcceptSeqMonotonic(t *testing.T) {
 	as := &AgentSession{}
 
@@ -45,15 +49,15 @@ func TestProcessCheckinReplayRejected(t *testing.T) {
 	_ = keys
 
 	// First checkin with seq 1 succeeds
-	if _, err := s.processCheckin("agent-psk-1", 1, nil); err != nil {
+	if _, err := s.processCheckin(testAgentID, 1, nil); err != nil {
 		t.Fatalf("first checkin: %v", err)
 	}
 	// Replaying seq 1 must fail
-	if _, err := s.processCheckin("agent-psk-1", 1, nil); err == nil {
+	if _, err := s.processCheckin(testAgentID, 1, nil); err == nil {
 		t.Error("replayed checkin should be rejected")
 	}
 	// A fresh seq succeeds
-	if _, err := s.processCheckin("agent-psk-1", 2, nil); err != nil {
+	if _, err := s.processCheckin(testAgentID, 2, nil); err != nil {
 		t.Errorf("next checkin should succeed: %v", err)
 	}
 }

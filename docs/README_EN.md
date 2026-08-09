@@ -1,6 +1,6 @@
-# Wisp — C2 Management Console
+# RAT-WISP
 
-Wisp is a cross-platform C2 management console built with Go + Wails v3 + React + TypeScript. It supports multi-protocol listeners, agent remote management, remote desktop, file management, and more.
+Wisp is a cross-platform C2 management console (also usable as a Remote Administration Tool), built with Go + Wails v3 + React + TypeScript. It supports multi-protocol listeners, agent remote management, remote desktop, file management, and more.
 
 ## Screenshots
 
@@ -41,8 +41,8 @@ Wisp is a cross-platform C2 management console built with Go + Wails v3 + React 
 ```bash
 cd src
 
-# Install dependencies
-cd frontend && npm install && cd ..
+# Install dependencies & build frontend
+cd frontend && npm install && npm run build && cd ..
 go mod tidy
 
 # Dev mode
@@ -52,6 +52,10 @@ wails3 dev
 make build-app          # or build.bat server
 make agent              # or build.bat agent
 make agent-all          # or build.bat agent-all
+
+# Run
+./bin/wisp              # macOS/Linux
+bin\wisp.exe            # double-click on Windows
 ```
 
 ## Documentation

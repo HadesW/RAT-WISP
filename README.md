@@ -41,8 +41,8 @@ Wisp 是一个跨平台 C2 管理控制台（也可作为远程管理工具Remot
 ```bash
 cd src
 
-# 安装依赖
-cd frontend && npm install && cd ..
+# 安装依赖并构建前端
+cd frontend && npm install && npm run build && cd ..
 go mod tidy
 
 # 开发模式
@@ -52,6 +52,10 @@ wails3 dev
 make build-app          # 或 build.bat server
 make agent              # 或 build.bat agent
 make agent-all          # 或 build.bat agent-all
+
+# 运行
+./bin/wisp              # macOS/Linux
+bin\wisp.exe            # Windows 可直接双击
 ```
 
 ## 文档

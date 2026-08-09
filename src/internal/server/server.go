@@ -447,7 +447,12 @@ func (s *Server) CompleteTask(taskID, result, status string) {
 			return
 		}
 
-		_ = s.db.InsertConsoleLog(task.SessionID, "output", "["+status+"] "+result)
+		// Format the status tag and the command output on separate lines so the
+		// reply is easy to read instead of sharing one line with the tag:
+		//
+		//   [completed]
+		//   'ls' 不是内部或外部命令...
+		_ = s.db.InsertConsoleLog(task.SessionID, "output", "["+status+"]\n"+result)
 
 		// The last chunk of an upload carries a completion marker; refresh the
 		// transfer record so the Download Center shows a finished state.
@@ -614,6 +619,19 @@ func (s *Server) processRegistration(encPayload []byte, listenerID, remoteIP str
 	var reg RegistrationPayload
 	if err := json.Unmarshal(plaintext, &reg); err != nil {
 		return nil, nil, fmt.Errorf("unmarshal registration failed: %w", err)
+	}
+
+	// Enforce the 8-byte wire ID format (16 hex chars). The checkin path and RCP
+	// handshake both slice exactly 8 bytes from the ID; accepting anything else
+	// would register a session that can never check in (an endless
+	// register → unknown-agent → re-register loop).
+	if len(reg.ID) != 16 {
+		return nil, nil, fmt.Errorf("registration rejected: invalid agent id length %d (must be 16 hex chars)", len(reg.ID))
+	}
+	for _, c := range reg.ID {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return nil, nil, fmt.Errorf("registration rejected: agent id must be hex")
+		}
 	}
 
 	// PSK authentication: if the listener requires a pre-shared key, the agent

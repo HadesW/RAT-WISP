@@ -21,7 +21,9 @@ func runShellCommand(ctx context.Context, cmd string) ([]byte, error) {
 		if c.Process == nil {
 			return nil
 		}
-		return exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(c.Process.Pid)).Run()
+		tk := exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(c.Process.Pid))
+		tk.SysProcAttr = noWindowAttr()
+		return tk.Run()
 	}
 	return c.CombinedOutput()
 }

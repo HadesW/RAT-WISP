@@ -1,29 +1,32 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { defaultShellForSession } from '../stores/useSessionStore'
+import { defaultShellForSession, useSessionStore, type ShellLine } from '../stores/useSessionStore'
 
 async function callBackend(method: string, ...args: unknown[]) {
   const runtime = await import('@wailsio/runtime')
   return runtime.Call.ByName(method, ...args)
 }
 
-interface ShellLine {
-  type: 'input' | 'output' | 'info' | 'error'
-  content: string
-  time: string
-}
-
 const POLL_MS = 400
 const TIMEOUT_MS = 30000
 
-// ShellView is a fully self-contained interactive shell tab. It keeps its own
-// input / output / history and polls each command's result directly; it does
-// NOT share state with the main Console.
+// ShellView is a self-contained interactive shell tab. Its state (shell type,
+// output history) lives in the session store so switching away and back to the
+// tab — which unmounts and remounts this component — keeps the same shell type
+// and reconnects to the existing agent-side session instead of resetting it.
 export function ShellView({ sessionId }: { sessionId: string }) {
-  const [lines, setLines] = useState<ShellLine[]>([])
+  // Restore the previously chosen shell type (e.g. powershell) if one is
+  // already open for this session; otherwise fall back to the per-platform
+  // default (cmd on Windows, bash elsewhere).
+  const savedShell = useSessionStore(s => s.ishell[sessionId])
+  const savedLines = useSessionStore(s => s.ishellLines[sessionId])
+  const setIshell = useSessionStore(s => s.setIshell)
+  const setIshellLines = useSessionStore(s => s.setIshellLines)
+  const appendIshellLine = useSessionStore(s => s.appendIshellLine)
+
+  const [lines, setLines] = useState<ShellLine[]>(savedLines || [])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
-  // cmd is the default on Windows, bash on Linux/macOS (per target platform)
-  const [shell, setShell] = useState(() => defaultShellForSession(sessionId))
+  const [shell, setShell] = useState(() => savedShell || defaultShellForSession(sessionId))
 
   const outputRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -31,8 +34,10 @@ export function ShellView({ sessionId }: { sessionId: string }) {
   const histIdxRef = useRef(-1)
 
   const push = useCallback((type: ShellLine['type'], content: string) => {
-    setLines(prev => [...prev, { type, content, time: new Date().toLocaleTimeString() }])
-  }, [])
+    const line: ShellLine = { type, content, time: new Date().toLocaleTimeString() }
+    setLines(prev => [...prev, line])
+    appendIshellLine(sessionId, line)
+  }, [sessionId, appendIshellLine])
 
   useEffect(() => {
     if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight
@@ -73,6 +78,7 @@ export function ShellView({ sessionId }: { sessionId: string }) {
     try {
       const taskID = await callBackend('github.com/user/wisp/services.SessionService.IshellOpen', sessionId, shellType)
       const task = await pollTask(taskID)
+      setIshell(sessionId, shellType)
       const out = task.result || ''
       const trimmed = out.replace(/^\s*interactive shell started[^\n]*\n?/, '')
       if (trimmed.trim()) push('output', trimmed)
@@ -85,10 +91,17 @@ export function ShellView({ sessionId }: { sessionId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId])
 
-  // Open the shell when the tab appears
+  // Open the shell when the tab appears — unless a shell for this session is
+  // already open (store.ishell set), in which case the agent-side process is
+  // still alive and we simply reconnect instead of resetting it.
   useEffect(() => {
-    openShell(defaultShellForSession(sessionId))
-  }, [openShell])
+    if (savedShell) {
+      push('info', `Reconnected to existing ${savedShell} shell.`)
+      return
+    }
+    openShell(shell)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const switchShell = (next: string) => {
     setShell(next)
@@ -101,6 +114,8 @@ export function ShellView({ sessionId }: { sessionId: string }) {
       await pollTask(taskID)
     } catch { /* ignore */ }
     push('info', 'shell closed')
+    setIshell(sessionId, null)
+    setIshellLines(sessionId, [])
     setBusy(false)
   }
 

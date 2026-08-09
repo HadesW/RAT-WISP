@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type TabKind = 'log' | 'listeners' | 'console' | 'shell' | 'files' | 'tasks' | 'transfers' | 'fileserver'
+export type TabKind = 'log' | 'listeners' | 'console' | 'shell' | 'files' | 'tasks' | 'transfers' | 'fileserver' | 'sysinfo' | 'processes'
 
 export interface Tab {
   id: string
@@ -19,7 +19,7 @@ interface TabState {
 }
 
 function defaultId(kind: TabKind, sessionId?: string): string {
-  if (kind === 'console' || kind === 'shell' || kind === 'files') return `${kind}:${sessionId}`
+  if (kind === 'console' || kind === 'shell' || kind === 'files' || kind === 'sysinfo' || kind === 'processes') return `${kind}:${sessionId}`
   return kind
 }
 
