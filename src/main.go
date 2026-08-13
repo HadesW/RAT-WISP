@@ -18,7 +18,11 @@ func main() {
 	listenerSvc := services.NewListenerService(serverSvc)
 	sessionSvc := services.NewSessionService(serverSvc)
 	payloadSvc := services.NewPayloadService(serverSvc)
+	shellcodeSvc := services.NewShellcodeService(serverSvc)
+	scriptSvc := services.NewScriptService(serverSvc)
+	opsSvc := services.NewOpsService(serverSvc)
 	fileServerSvc := services.NewFileServerService(serverSvc)
+	deliverySvc := services.NewDeliveryService(serverSvc)
 
 	// Strip the "frontend/dist" prefix so files are served from root
 	staticAssets, err := fs.Sub(assets, "frontend/dist")
@@ -34,11 +38,15 @@ func main() {
 		},
 		Services: []application.Service{
 			application.NewService(serverSvc),
-		application.NewService(listenerSvc),
-		application.NewService(sessionSvc),
-		application.NewService(payloadSvc),
-		application.NewService(fileServerSvc),
-	},
+			application.NewService(listenerSvc),
+			application.NewService(sessionSvc),
+			application.NewService(payloadSvc),
+			application.NewService(shellcodeSvc),
+			application.NewService(scriptSvc),
+			application.NewService(opsSvc),
+			application.NewService(fileServerSvc),
+			application.NewService(deliverySvc),
+		},
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},

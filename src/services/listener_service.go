@@ -73,6 +73,18 @@ func (ls *ListenerService) GetSupportedProtocols() []string {
 	return protocol.SupportedListenerProtocols()
 }
 
+// SetProfile stores a Malleable profile JSON on a listener. Restart the
+// listener for URI/header changes to take effect.
+func (ls *ListenerService) SetProfile(id, profileJSON string) error {
+	if id == "" {
+		return fmt.Errorf("listener id is required")
+	}
+	if _, err := ls.serverSvc.GetDB().GetListener(id); err != nil {
+		return fmt.Errorf("listener not found: %w", err)
+	}
+	return ls.serverSvc.GetDB().SetListenerProfile(id, profileJSON)
+}
+
 func isSupportedProtocol(p string) bool {
 	for _, s := range protocol.SupportedListenerProtocols() {
 		if s == p {

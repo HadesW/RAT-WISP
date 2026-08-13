@@ -7,3 +7,8 @@ frontend/node_modules/
 *.db-wal
 *.db-shm
 .DS_Store
+wisp-headless
+headless
+reports/
+payloads/
+agent-rust/target/

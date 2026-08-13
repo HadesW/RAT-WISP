@@ -215,11 +215,61 @@ func (d *Database) migrate() error {
 		value TEXT NOT NULL DEFAULT ''
 	);
 
+	CREATE TABLE IF NOT EXISTS targets (
+		id TEXT PRIMARY KEY,
+		ip TEXT NOT NULL,
+		hostname TEXT NOT NULL DEFAULT '',
+		os TEXT NOT NULL DEFAULT '',
+		note TEXT NOT NULL DEFAULT '',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE TABLE IF NOT EXISTS credentials (
+		id TEXT PRIMARY KEY,
+		target TEXT NOT NULL DEFAULT '',
+		username TEXT NOT NULL DEFAULT '',
+		password TEXT NOT NULL DEFAULT '',
+		secret TEXT NOT NULL DEFAULT '',
+		kind TEXT NOT NULL DEFAULT '',
+		note TEXT NOT NULL DEFAULT '',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE TABLE IF NOT EXISTS loot (
+		id TEXT PRIMARY KEY,
+		session_id TEXT NOT NULL DEFAULT '',
+		name TEXT NOT NULL,
+		kind TEXT NOT NULL DEFAULT '',
+		data TEXT NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE TABLE IF NOT EXISTS stages (
+		token TEXT PRIMARY KEY,
+		key BLOB NOT NULL,
+		payload BLOB NOT NULL,
+		xor INTEGER NOT NULL DEFAULT 0,
+		one_time INTEGER NOT NULL DEFAULT 1,
+		expires DATETIME,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE TABLE IF NOT EXISTS canaries (
+		token TEXT PRIMARY KEY,
+		build_name TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL DEFAULT 'armed',
+		remote_ip TEXT NOT NULL DEFAULT '',
+		triggered_at DATETIME,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
 	CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
 	CREATE INDEX IF NOT EXISTS idx_sessions_listener ON sessions(listener_id);
 	CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);
 	CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 	CREATE INDEX IF NOT EXISTS idx_console_logs_session ON console_logs(session_id);
+	CREATE INDEX IF NOT EXISTS idx_targets_ip ON targets(ip);
+	CREATE INDEX IF NOT EXISTS idx_creds_target ON credentials(target);
 	`
 	if _, err := d.db.Exec(schema); err != nil {
 		return err
@@ -261,6 +311,13 @@ func (d *Database) migrateAddColumns() error {
 		return err
 	} else if !ok {
 		if _, err := d.db.Exec(`ALTER TABLE listeners ADD COLUMN host TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+	if ok, err := hasColumn("listeners", "profile"); err != nil {
+		return err
+	} else if !ok {
+		if _, err := d.db.Exec(`ALTER TABLE listeners ADD COLUMN profile TEXT NOT NULL DEFAULT ''`); err != nil {
 			return err
 		}
 	}

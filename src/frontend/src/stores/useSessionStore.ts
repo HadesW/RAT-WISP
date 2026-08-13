@@ -56,6 +56,12 @@ export interface ShellLine {
   time: string
 }
 
+export interface CanaryAlert {
+  token: string
+  remoteIp: string
+  at: string
+}
+
 interface SessionState {
   sessions: SessionInfo[]
   selectedId: string | null
@@ -64,6 +70,7 @@ interface SessionState {
   consoleDraft: Record<string, string>     // per-session unsent input
   ishell: Record<string, string | null>    // per-session interactive shell name
   ishellLines: Record<string, ShellLine[]> // per-session shell output history
+  canaryAlerts: CanaryAlert[]              // burn-detection alerts
   setSessions: (sessions: SessionInfo[]) => void
   setSelected: (id: string | null) => void
   addConsoleEntry: (sessionId: string, entry: ConsoleEntry) => void
@@ -73,11 +80,13 @@ interface SessionState {
   setIshell: (sessionId: string, shell: string | null) => void
   setIshellLines: (sessionId: string, lines: ShellLine[]) => void
   appendIshellLine: (sessionId: string, line: ShellLine) => void
+  dismissCanary: (token: string) => void
   initEventListeners: () => void
 }
 
 export const useSessionStore = create<SessionState>((set, get) => ({
   sessions: [],
+  canaryAlerts: [],
   selectedId: null,
   console: {},
   consoleHistory: {},
@@ -152,8 +161,47 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           sessions: state.sessions.filter(s => s.id !== id),
         }))
       })
+
+      // Burn canary: a generated payload was dynamically analysed by a
+      // sandbox/AV (its startup /canary/<token> lookup was intercepted).
+      Events.On('canary:burn', (event: { data: any }) => {
+        const d = unwrapEventData(event) as any
+        if (!d) return
+        set((state) => ({
+          canaryAlerts: [
+            {
+              token: String(d.token ?? ''),
+              remoteIp: String(d.remote_ip ?? ''),
+              at: String(d.at ?? new Date().toLocaleTimeString()),
+            },
+            ...state.canaryAlerts,
+          ].slice(0, 50),
+        }))
+      })
+
+      // Hook prints: script hooks call print() to inspect traffic flowing
+      // through the C2. Show them inline in the selected session's console.
+      Events.On('hook:log', (event: { data: any }) => {
+        const d = unwrapEventData(event) as any
+        if (!d?.text) return
+        const text = String(d.text)
+        const entry = { type: 'info' as const, content: `[hook:${d.event}] ${text}`, timestamp: new Date().toLocaleTimeString() }
+        const sid = get().selectedId
+        if (sid) {
+          set((state) => ({
+            console: {
+              ...state.console,
+              [sid]: [...(state.console[sid] || []), entry].slice(-5000),
+            },
+          }))
+        }
+      })
     })
   },
+
+  dismissCanary: (token: string) => set((state) => ({
+    canaryAlerts: state.canaryAlerts.filter(a => a.token !== token),
+  })),
 }))
 
 // defaultShellForSession returns the interactive shell that should be opened by

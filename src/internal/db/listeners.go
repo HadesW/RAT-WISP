@@ -1,6 +1,7 @@
 package db
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,7 +20,34 @@ type ListenerRow struct {
 	UseTLS    bool      `json:"use_tls"`
 	Status    string    `json:"status"`
 	PSK       string    `json:"psk"`
+	Profile   string    `json:"profile"` // Malleable profile JSON (optional)
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// ListenerProfile customizes an HTTP(S) listener to imitate a benign web
+// service (Malleable profile). When empty fields are left at defaults, the
+// listener behaves like the stock /api/v1/* endpoints.
+type ListenerProfile struct {
+	// RegisterURI / CheckinURI / PubKeyURI replace the default paths.
+	// StagePrefix is the URI prefix for stage-2 downloads (e.g. "/wp-content/uploads/").
+	RegisterURI string `json:"register_uri,omitempty"`
+	CheckinURI  string `json:"checkin_uri,omitempty"`
+	PubKeyURI   string `json:"pubkey_uri,omitempty"`
+	StagePrefix string `json:"stage_prefix,omitempty"`
+	// ResponseHeaders are added to every HTTP response (Server, X-Powered-By...).
+	ResponseHeaders map[string]string `json:"response_headers,omitempty"`
+	// UserAgents the agent should send on outbound requests (rotated).
+	UserAgents []string `json:"user_agents,omitempty"`
+}
+
+// MalleableProfile returns the parsed Malleable profile (empty profile when
+// none set).
+func (l *ListenerRow) MalleableProfile() ListenerProfile {
+	var p ListenerProfile
+	if l.Profile != "" {
+		_ = json.Unmarshal([]byte(l.Profile), &p)
+	}
+	return p
 }
 
 // CreateListener inserts a new listener with an optional pre-shared key.
@@ -47,7 +75,7 @@ func (d *Database) CreateListener(name, protocol, bindHost string, bindPort int,
 		return nil, err
 	}
 	_, err = d.db.Exec(
-		`INSERT INTO listeners (id, name, protocol, host, bind_host, bind_port, use_tls, status, psk, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'stopped', ?, ?)`,
+		`INSERT INTO listeners (id, name, protocol, host, bind_host, bind_port, use_tls, status, psk, profile, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'stopped', ?, '', ?)`,
 		id, name, protocol, cbHost, bindHost, bindPort, tlsInt, encPSK, now,
 	)
 	if err != nil {
@@ -82,10 +110,10 @@ func (d *Database) DeleteListener(id string) error {
 
 // GetListener retrieves a single listener by ID.
 func (d *Database) GetListener(id string) (*ListenerRow, error) {
-	row := d.db.QueryRow(`SELECT id, name, protocol, host, bind_host, bind_port, use_tls, status, psk, created_at FROM listeners WHERE id = ?`, id)
+	row := d.db.QueryRow(`SELECT id, name, protocol, host, bind_host, bind_port, use_tls, status, psk, profile, created_at FROM listeners WHERE id = ?`, id)
 	l := &ListenerRow{}
 	var tlsInt int
-	if err := row.Scan(&l.ID, &l.Name, &l.Protocol, &l.Host, &l.BindHost, &l.BindPort, &tlsInt, &l.Status, &l.PSK, &l.CreatedAt); err != nil {
+	if err := row.Scan(&l.ID, &l.Name, &l.Protocol, &l.Host, &l.BindHost, &l.BindPort, &tlsInt, &l.Status, &l.PSK, &l.Profile, &l.CreatedAt); err != nil {
 		return nil, err
 	}
 	l.UseTLS = tlsInt == 1
@@ -95,7 +123,7 @@ func (d *Database) GetListener(id string) (*ListenerRow, error) {
 
 // ListListeners returns all listeners.
 func (d *Database) ListListeners() ([]ListenerRow, error) {
-	rows, err := d.db.Query(`SELECT id, name, protocol, host, bind_host, bind_port, use_tls, status, psk, created_at FROM listeners ORDER BY created_at DESC`)
+	rows, err := d.db.Query(`SELECT id, name, protocol, host, bind_host, bind_port, use_tls, status, psk, profile, created_at FROM listeners ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +133,7 @@ func (d *Database) ListListeners() ([]ListenerRow, error) {
 	for rows.Next() {
 		l := ListenerRow{}
 		var tlsInt int
-		if err := rows.Scan(&l.ID, &l.Name, &l.Protocol, &l.Host, &l.BindHost, &l.BindPort, &tlsInt, &l.Status, &l.PSK, &l.CreatedAt); err != nil {
+		if err := rows.Scan(&l.ID, &l.Name, &l.Protocol, &l.Host, &l.BindHost, &l.BindPort, &tlsInt, &l.Status, &l.PSK, &l.Profile, &l.CreatedAt); err != nil {
 			return nil, err
 		}
 		l.UseTLS = tlsInt == 1
@@ -113,4 +141,10 @@ func (d *Database) ListListeners() ([]ListenerRow, error) {
 		result = append(result, l)
 	}
 	return result, nil
+}
+
+// SetListenerProfile stores the Malleable profile JSON for a listener.
+func (d *Database) SetListenerProfile(id, profileJSON string) error {
+	_, err := d.db.Exec(`UPDATE listeners SET profile = ? WHERE id = ?`, profileJSON, id)
+	return err
 }

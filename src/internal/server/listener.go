@@ -272,6 +272,16 @@ func handleRegister(s *Server, listenerID string, conn net.Conn, pkt *protocol.P
 	remoteAddr := conn.RemoteAddr().String()
 	host, _, _ := net.SplitHostPort(remoteAddr)
 
+	// Unified pre-hook (TCP/KCP): observe/block registrations.
+	hctx := TriggerHook("listener:register", HookPre, map[string]any{
+		"ip":         host,
+		"listener":   listenerID,
+		"body_bytes": len(pkt.Payload),
+	}, map[string]any{})
+	if hctx.Abort {
+		return
+	}
+
 	_, encrypted, err := s.processRegistration(pkt.Payload, listenerID, host)
 	if err != nil {
 		log.Printf("[Listener] Registration rejected from %s: %v", remoteAddr, err)
@@ -292,6 +302,31 @@ func handleCheckin(s *Server, conn net.Conn, pkt *protocol.Packet) {
 	agentID := string(pkt.Payload[:16])
 	seq := binary.BigEndian.Uint64(pkt.Payload[16:24])
 	encryptedBody := pkt.Payload[24:]
+
+	// Unified pre-hook (TCP/KCP transport): scripts/WASM can observe and shape
+	// the checkin traffic. Input mirrors the HTTP listener's hook.
+	host := ""
+	if ra := conn.RemoteAddr(); ra != nil {
+		if h, _, err := net.SplitHostPort(ra.String()); err == nil {
+			host = h
+		} else {
+			host = ra.String()
+		}
+	}
+	transportName := "tcp"
+	if _, ok := conn.(*kcp.UDPSession); ok {
+		transportName = "kcp"
+	}
+	hctx := TriggerHook("listener:checkin", HookPre, map[string]any{
+		"ip":         host,
+		"transport":  transportName,
+		"agent_id":   agentID,
+		"seq":        seq,
+		"body_bytes": len(encryptedBody),
+	}, map[string]any{})
+	if hctx.Abort {
+		return
+	}
 
 	encrypted, err := s.processCheckin(agentID, seq, encryptedBody)
 	if err != nil {

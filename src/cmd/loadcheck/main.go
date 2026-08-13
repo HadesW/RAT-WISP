@@ -1,3 +1,5 @@
+//go:build windows
+
 // Command loadcheck verifies that the stage DLL (agent compiled with
 // -buildmode=c-shared) can be loaded via LoadLibrary and exposes the Run
 // export. It does not call Run (that would start a full agent).

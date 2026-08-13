@@ -55,6 +55,44 @@ build_server() {
     print_ok "Server built → bin/wisp ($(file_size "$BIN_DIR/wisp"))"
 }
 
+build_headless() {
+    print_step "Building headless server (wisp-headless)..."
+    mkdir -p "$BIN_DIR"
+    cd "$PROJECT_ROOT"
+    go build -o "$BIN_DIR/wisp-headless" ./cmd/headless/
+    print_ok "Headless built → bin/wisp-headless ($(file_size "$BIN_DIR/wisp-headless"))"
+}
+
+build_rust_agent() {
+    print_step "Building Rust agent (shellcode/stager templates)..."
+    mkdir -p "$BIN_DIR/templates"
+    local rust_dir="$PROJECT_ROOT/agent-rust"
+    if [ ! -d "$rust_dir" ]; then
+        print_warn "  agent-rust/ not found; skipping Rust templates"
+        return 0
+    fi
+    # Locate cargo
+    if [ -f "$HOME/.cargo/env" ]; then
+        . "$HOME/.cargo/env"
+    fi
+    if ! command -v cargo >/dev/null 2>&1; then
+        print_warn "  cargo not found; skipping Rust templates"
+        return 0
+    fi
+    if ! command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
+        print_warn "  x86_64-w64-mingw32-gcc not found; skipping Rust templates"
+        return 0
+    fi
+
+    export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc
+    cd "$rust_dir"
+    cargo build --release --target x86_64-pc-windows-gnu --bin wisp-agent 2>/dev/null
+    cargo build --release --target x86_64-pc-windows-gnu --lib 2>/dev/null
+    cp "$rust_dir/target/x86_64-pc-windows-gnu/release/wisp-agent.exe" "$BIN_DIR/templates/agent_rust_windows_amd64.exe"
+    cp "$rust_dir/target/x86_64-pc-windows-gnu/release/wisp_agent.dll" "$BIN_DIR/templates/agent_rust_windows_amd64.dll"
+    print_ok "Rust templates → agent_rust_windows_amd64.exe/.dll"
+}
+
 build_agent() {
     print_step "Building agent (current platform)..."
     mkdir -p "$BIN_DIR"
@@ -156,11 +194,13 @@ show_usage() {
     echo "Usage: $0 [command]"
     echo ""
     echo "Commands:"
-    echo "  all          Build frontend + server + agent (default)"
+    echo "  all          Build frontend + templates + server + headless + agent + rust"
     echo "  frontend     Build frontend only"
     echo "  server       Build server only"
-    echo "  agent        Build agent for current platform"
+    echo "  headless     Build headless server only"
+    echo "  agent        Build Go agent for current platform"
     echo "  templates    Cross-compile 6 agent templates + 2 DLL templates"
+    echo "  rust         Build Rust agent templates (shellcode/stager)"
     echo "  agent-all    Cross-compile agent for all 6 platforms"
     echo "  clean        Remove build artifacts"
     echo ""
@@ -176,7 +216,9 @@ case "${1:-all}" in
     all)
         build_frontend
         build_templates
+        build_rust_agent
         build_server
+        build_headless
         build_agent
         ;;
     frontend)
@@ -186,11 +228,17 @@ case "${1:-all}" in
         build_frontend
         build_server
         ;;
+    headless)
+        build_headless
+        ;;
     agent)
         build_agent
         ;;
     templates)
         build_templates
+        ;;
+    rust)
+        build_rust_agent
         ;;
     agent-all)
         build_agent_all

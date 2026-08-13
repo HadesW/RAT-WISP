@@ -24,6 +24,7 @@ export function DashboardPage() {
 
   const sessions = useSessionStore(s => s.sessions)
   const setSessions = useSessionStore(s => s.setSessions)
+  const canaryAlerts = useSessionStore(s => s.canaryAlerts)
   const setListeners = useListenerStore(s => s.setListeners)
   const listeners = useListenerStore(s => s.listeners)
 
@@ -132,6 +133,19 @@ export function DashboardPage() {
           <option value="en">English</option>
         </select>
       </div>
+      {canaryAlerts.length > 0 && (
+        <div style={{ padding: '6px 12px', background: 'rgba(229,72,77,0.15)', borderBottom: '1px solid rgba(229,72,77,0.4)', display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+          {canaryAlerts.map(a => (
+            <span key={a.token} style={{ fontSize: 12, color: '#e5484d' }}>
+              ⚠ {t('canaryBurn')} token={a.token.slice(0, 12)} ip={a.remoteIp} @{a.at}
+              <button
+                onClick={() => useSessionStore.getState().dismissCanary(a.token)}
+                style={{ marginLeft: 6, background: 'none', border: 'none', color: 'inherit', cursor: 'pointer' }}
+              >✕</button>
+            </span>
+          ))}
+        </div>
+      )}
       <div ref={layoutRef} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ flex: `0 0 ${splitPct}%`, overflow: 'hidden' }}>
           <SessionTable />

@@ -14,6 +14,7 @@ rem    server       Build frontend + server (wisp.exe)
 rem    agent        Build agent for current platform
 rem    agent-all    Cross-compile agent for all 6 platforms
 rem    templates    Build 6-platform agent templates + 2 DLL templates into bin\templates
+rem    release      Stage loaders/native/scripts resources into bin\
 rem    clean        Remove build artifacts
 rem    help         Show usage
 rem ============================================================
@@ -98,12 +99,31 @@ if /i "%CMD%"=="server"       goto :do_server
 if /i "%CMD%"=="agent"        goto :do_agent
 if /i "%CMD%"=="agent-all"    goto :do_agent_all
 if /i "%CMD%"=="templates"    goto :do_templates
+if /i "%CMD%"=="release"      goto :do_release
 if /i "%CMD%"=="clean"        goto :do_clean
 if /i "%CMD%"=="help"         goto :usage
 if /i "%CMD%"=="all"          goto :do_all
 echo   [ERROR] Unknown command: %CMD%
 call :usage
 exit /b 1
+
+:do_release
+rem Stage the operator resource directories into bin\ (loaders, native, scripts).
+echo [Step] Staging release resources -^> bin\
+if exist "%PROJECT_ROOT%loaders" (
+    if exist "%BIN_DIR%\loaders" rmdir /s /q "%BIN_DIR%\loaders"
+    xcopy /e /i /q "%PROJECT_ROOT%loaders" "%BIN_DIR%\loaders" >nul
+    echo   [OK]   loaders\ copied
+)
+if exist "%PROJECT_ROOT%native" (
+    if exist "%BIN_DIR%\native" rmdir /s /q "%BIN_DIR%\native"
+    xcopy /e /i /q "%PROJECT_ROOT%native" "%BIN_DIR%\native" >nul
+    echo   [OK]   native\ copied
+)
+if not exist "%BIN_DIR%\scripts" mkdir "%BIN_DIR%\scripts"
+if not exist "%BIN_DIR%\payloads" mkdir "%BIN_DIR%\payloads"
+if not exist "%BIN_DIR%\reports" mkdir "%BIN_DIR%\reports"
+goto :done
 
 :do_frontend
 call :build_frontend
