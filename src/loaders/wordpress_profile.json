@@ -1,13 +1,31 @@
 {
+  // ============ Malleable Profile — 模仿 WordPress 站点 ============
+  // 让 WISP 的 HTTP(S) 监听器 + agent 出站 + stage 下载整体伪装成
+  // 一个 WordPress 网站，消除固定 /api/v1/* 路径与默认 UA 的 IOC 特征。
+  // 本文件支持 JSONC 注释（// 行注释 与 /* */ 块注释），
+  // 加载时由服务端自动剥离后再解析，无需担心注释破坏 JSON。
+  // 完整字段说明见 docs/MALLEABLE.md。
+
+  // agent 注册路径：模拟 WordPress 登录接口
   "register_uri": "/wp-login.php",
+
+  // agent 回连/心跳路径（流量最频繁）：模拟 WP 后台 AJAX 端点
   "checkin_uri": "/wp-admin/admin-ajax.php",
+
+  // RSA 公钥获取路径：模拟 WP 版本探测文件
   "pubkey_uri": "/wp-includes/version.php",
+
+  // stage-2 下载前缀（C stager 用）：伪装成静态资源目录
   "stage_prefix": "/wp-content/uploads/",
+
+  // 每个 HTTP 响应附加的响应头，伪装服务端软件指纹
   "response_headers": {
     "Server": "nginx/1.18.0",
     "X-Powered-By": "PHP/7.4.33",
     "Cache-Control": "no-cache, must-revalidate"
   },
+
+  // agent 出站请求轮换的 User-Agent（模拟正常浏览器流量）
   "user_agents": [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"

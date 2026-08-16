@@ -326,6 +326,31 @@ func (ss *SessionService) GetLocalHomeDir() (string, error) {
 	return home, nil
 }
 
+// ReadLocalFile reads a local text file (bounded) and returns its contents.
+// Used by the UI to load a Malleable profile JSON when creating a listener.
+func (ss *SessionService) ReadLocalFile(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("stat local file: %w", err)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("%s is a directory", path)
+	}
+	// Bound the read: profiles are small JSON documents.
+	const maxProfileBytes = 1 << 20 // 1 MB
+	if info.Size() > maxProfileBytes {
+		return "", fmt.Errorf("file too large to load as a profile")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read local file: %w", err)
+	}
+	return string(data), nil
+}
+
 // ListLocalDrives returns the root entries of the operator's filesystem — the
 // drive list on Windows ("This PC" view) and a single "/" root on Unix. Used by
 // the file manager's local pane when the user is at the top level.

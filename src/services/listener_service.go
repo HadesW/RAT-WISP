@@ -36,7 +36,7 @@ type ListenerInfo struct {
 // auto-detected so payloads work from other machines out of the box.
 // proto must be one of: tcp, http, https. psk is an optional pre-shared key:
 // agents built against this listener must present it during registration.
-func (ls *ListenerService) Create(name, proto, host, bindHost string, port int, useTLS bool, psk string) (*ListenerInfo, error) {
+func (ls *ListenerService) Create(name, proto, host, bindHost string, port int, useTLS bool, psk string, profile ...string) (*ListenerInfo, error) {
 	if name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
@@ -63,6 +63,15 @@ func (ls *ListenerService) Create(name, proto, host, bindHost string, port int, 
 	row, err := ls.serverSvc.GetDB().CreateListener(name, proto, bindHost, port, useTLS, psk, host)
 	if err != nil {
 		return nil, err
+	}
+
+	// Optional Malleable profile baked in at creation time (the Cobalt-Strike
+	// style "pick a profile, create the listener, it just works" flow). No
+	// separate SetProfile call needed; the listener is born with the profile.
+	if len(profile) > 0 && profile[0] != "" {
+		if err := ls.serverSvc.GetDB().SetListenerProfile(row.ID, profile[0]); err != nil {
+			return nil, err
+		}
 	}
 
 	return rowToInfo(row), nil

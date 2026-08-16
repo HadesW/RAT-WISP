@@ -171,6 +171,10 @@ function AddListenerDialog({ onClose }: { onClose: () => void }) {
   const [port, setPort] = useState(PROTOCOL_DEFAULT_PORTS.tcp)
   const [useTLS, setUseTLS] = useState(false)
   const [psk, setPSK] = useState('')
+  // Malleable traffic profile: path (display) + raw JSON content baked at
+  // creation time (Cobalt-Strike style "pick profile, create, done").
+  const [profilePath, setProfilePath] = useState('')
+  const [profile, setProfile] = useState('')
 
   // https implicitly enables TLS
   const isHTTPS = protocol === 'https'
@@ -180,6 +184,29 @@ function AddListenerDialog({ onClose }: { onClose: () => void }) {
     // its standard port (e.g. HTTPS → 443); the user can still edit it.
     setPort(PROTOCOL_DEFAULT_PORTS[p] ?? PROTOCOL_DEFAULT_PORTS.tcp)
     if (p === 'https') setUseTLS(true)
+  }
+
+  const pickProfile = async () => {
+    try {
+      const { Dialogs } = await import('@wailsio/runtime')
+      const path = await Dialogs.OpenFile({
+        CanChooseFiles: true,
+        CanChooseDirectories: false,
+        Title: t('listenerProfilePick'),
+        Filters: [{ DisplayName: 'Malleable Profile (*.json)', Pattern: '*.json' }],
+      })
+      if (!path) return
+      const content = await callBackend('github.com/user/wisp/services.SessionService.ReadLocalFile', path)
+      if (content !== null && content !== undefined) {
+        setProfilePath(String(path))
+        setProfile(String(content))
+      } else {
+        setProfilePath('')
+        setProfile('')
+      }
+    } catch (e) {
+      console.warn('pick profile failed:', e)
+    }
   }
 
   const handleCreate = () => {
@@ -192,6 +219,7 @@ function AddListenerDialog({ onClose }: { onClose: () => void }) {
       parseInt(port),
       isHTTPS ? true : useTLS,
       psk,
+      profile,
     ).then(() => onClose())
   }
 
@@ -236,6 +264,19 @@ function AddListenerDialog({ onClose }: { onClose: () => void }) {
           placeholder={t('dlgPSKPlaceholder')}
           type="password"
         />
+        <label>{t('listenerProfile')}</label>
+        <div className="dialog-row">
+          <input
+            value={profilePath}
+            onChange={e => { setProfilePath(e.target.value); setProfile('') }}
+            placeholder={t('listenerProfilePlaceholder')}
+            readOnly
+          />
+          <button className="toolbar-btn" onClick={pickProfile}>{t('listenerProfilePick')}</button>
+        </div>
+        {profilePath && (
+          <div className="payload-hint" style={{ marginTop: -6 }}>{t('listenerProfileLoaded')}</div>
+        )}
         <div className="dialog-actions">
           <button onClick={onClose}>{t('fsCancel')}</button>
           <button className="btn-primary" onClick={handleCreate}>{t('dlgCreate')}</button>

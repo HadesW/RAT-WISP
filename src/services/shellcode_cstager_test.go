@@ -404,3 +404,87 @@ func TestGenerateCStagerDllTemplate(t *testing.T) {
 	}
 	t.Logf("DLL stager: %d bytes", len(data))
 }
+
+// seedRustStagerTemplate copies the precompiled Rust stager EXE template into
+// the test binary's templates dir.
+func seedRustStagerTemplate(t *testing.T) error {
+	t.Helper()
+	src := filepath.Join("bin", "templates", "stager_rust_template.exe")
+	data, err := os.ReadFile(src)
+	if err != nil {
+		src = filepath.Join("..", "bin", "templates", "stager_rust_template.exe")
+		data, err = os.ReadFile(src)
+		if err != nil {
+			return err
+		}
+	}
+	dstDir := filepath.Join(exeDir(), "templates")
+	if err := os.MkdirAll(dstDir, 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dstDir, "stager_rust_template.exe"), data, 0644)
+}
+
+// TestGenerateRustStagerTemplate verifies the Rust stager is built from the
+// precompiled template (config patched, no compilation) and produces a PE that
+// no longer contains the 0xCC sentinel.
+func TestGenerateRustStagerTemplate(t *testing.T) {
+	if err := seedTemplates(t); err != nil {
+		t.Fatalf("seed agent dll: %v", err)
+	}
+	if err := seedRustStagerTemplate(t); err != nil {
+		t.Fatalf("seed rust stager: %v", err)
+	}
+	database, err := openTestDB(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := &ServerService{db: database}
+	srv, err := server.New(database, nil)
+	if err != nil {
+		t.Fatalf("new server: %v", err)
+	}
+	svc.server = srv
+
+	ln, err := database.CreateListener("stager-http", "http", "127.0.0.1", 8810, false, "", "127.0.0.1")
+	if err != nil {
+		t.Fatalf("create listener: %v", err)
+	}
+	ss := &ShellcodeService{serverSvc: svc}
+	dir, err := os.MkdirTemp("", "rust-stager-out-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	res, err := ss.GenerateStager(ShellcodeConfig{
+		ListenerID: ln.ID,
+		TargetOS:   "windows",
+		TargetArch: "amd64",
+		Mode:       "staged",
+		StagerLang: "rust",
+		Format:     "exe",
+		OutputPath: filepath.Join(dir, "stager.exe"),
+	})
+	if err != nil {
+		t.Fatalf("GenerateStager(rust): %v", err)
+	}
+	if res == nil || res.StagerPath == "" {
+		t.Fatal("nil result")
+	}
+	data, err := os.ReadFile(res.StagerPath)
+	if err != nil {
+		t.Fatalf("read rust stager: %v", err)
+	}
+	if !bytes.HasPrefix(data, []byte("MZ")) {
+		t.Fatal("output is not a PE binary")
+	}
+	// Sentinel must be gone (config patched) and the real stage URL present.
+	if bytes.Contains(data, bytes.Repeat([]byte{0xCC}, 320)) {
+		t.Fatal("config sentinel not patched")
+	}
+	if !bytes.Contains(data, []byte("/stage/")) {
+		t.Fatalf("real stage URL not embedded")
+	}
+	t.Logf("Rust stager: %d bytes (url %s)", len(data), res.StageURL)
+}

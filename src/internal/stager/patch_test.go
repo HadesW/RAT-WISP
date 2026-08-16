@@ -116,3 +116,54 @@ func TestPatchTemplateBlobRewritesConfig(t *testing.T) {
 		t.Fatalf("path wrong: %q", bytes.TrimRight(got[42:170], "\x00"))
 	}
 }
+
+func TestPatchRustStager(t *testing.T) {
+	// Template: some padding + 320xCC sentinel + trailing.
+	tmpl := append(bytes.Repeat([]byte{0x90}, 32), bytes.Repeat([]byte{0xCC}, 320)...)
+	tmpl = append(tmpl, []byte("tail")...)
+
+	url := "http://192.168.1.31:5008/stage/abc?raw=1"
+	key := "c2VjcmV0LWtleS1iNjQtZW5jb2RlZA=="
+	out, err := PatchRustStager(tmpl, url, key)
+	if err != nil {
+		t.Fatalf("patch: %v", err)
+	}
+
+	idx := bytes.Index(out, []byte(url))
+	if idx < 0 {
+		t.Fatal("url not patched")
+	}
+	// URL is the first field; key starts at URL(256) into the config block.
+	keyIdx := idx + rustURLSize
+	if !bytes.HasPrefix(out[keyIdx:], []byte(key)) {
+		t.Fatalf("key not patched at +256: %q", out[keyIdx:keyIdx+10])
+	}
+	// URL must be within the 256-byte URL field.
+	if idx+len(url) > keyIdx {
+		t.Fatal("url overflowed its field")
+	}
+	// Padding + tail untouched.
+	if !bytes.Equal(out[:32], bytes.Repeat([]byte{0x90}, 32)) {
+		t.Fatal("padding modified")
+	}
+	if !bytes.HasSuffix(out, []byte("tail")) {
+		t.Fatal("tail modified")
+	}
+}
+
+func TestPatchRustStagerRejectsLongConfig(t *testing.T) {
+	tmpl := bytes.Repeat([]byte{0xCC}, 320)
+	longURL := bytes.Repeat([]byte("a"), 300)
+	if _, err := PatchRustStager(tmpl, string(longURL), "key"); err == nil {
+		t.Fatal("expected error for over-long URL")
+	}
+	if _, err := PatchRustStager(tmpl, "url", string(bytes.Repeat([]byte("k"), 100))); err == nil {
+		t.Fatal("expected error for over-long key")
+	}
+}
+
+func TestPatchRustStagerNoSentinel(t *testing.T) {
+	if _, err := PatchRustStager(bytes.Repeat([]byte{0x90}, 64), "url", "key"); err == nil {
+		t.Fatal("expected error when sentinel absent")
+	}
+}

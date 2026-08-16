@@ -41,11 +41,12 @@ type ListenerProfile struct {
 }
 
 // MalleableProfile returns the parsed Malleable profile (empty profile when
-// none set).
+// none set). The profile JSON may carry JSONC comments (`//` or `/* */`),
+// which are stripped before parsing so annotated example files load cleanly.
 func (l *ListenerRow) MalleableProfile() ListenerProfile {
 	var p ListenerProfile
 	if l.Profile != "" {
-		_ = json.Unmarshal([]byte(l.Profile), &p)
+		_ = json.Unmarshal(stripJSONC([]byte(l.Profile)), &p)
 	}
 	return p
 }

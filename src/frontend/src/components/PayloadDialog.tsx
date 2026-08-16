@@ -236,13 +236,14 @@ export function PayloadDialog({ onClose }: { onClose: () => void }) {
           {mode === 'staged' && (
             <>
               <Row>
-                <Field label={t('payloadStagerLang')} hint={stagerLang === 'c' ? t('payloadStagerLangCHint') : undefined}>
+                <Field label={t('payloadStagerLang')} hint={(stagerLang === 'c' || stagerLang === 'rust') ? t('payloadStagerLangCHint') : undefined}>
                   <select value={stagerLang} onChange={e => setStagerLang(e.target.value)}>
                     <option value="go">{t('payloadStagerLangGo')}</option>
                     <option value="c">{t('payloadStagerLangC')}</option>
+                    <option value="rust">{t('payloadStagerLangRust')}</option>
                   </select>
                 </Field>
-                {stagerLang === 'c' && (
+                {(stagerLang === 'c' || stagerLang === 'rust') && (
                   <Field label={t('payloadFormat')}>
                     <select value={format} onChange={e => setFormat(e.target.value)}>
                       <option value="exe">{t('payloadFormatExe')}</option>
