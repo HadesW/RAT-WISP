@@ -1,0 +1,8 @@
+[package]
+name = "wisp-hello-native"
+version = "0.1.0"
+edition = "2021"
+description = "P5 sample native plugin: logs through the host API"
+
+[lib]
+crate-type = ["cdylib"]

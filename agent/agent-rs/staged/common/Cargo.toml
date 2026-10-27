@@ -1,0 +1,10 @@
+[package]
+name = "wisp-staged"
+version = "0.3.0"
+edition = "2021"
+description = "WISP++ layered payload format: token-derived keys, PE section crypt, bundle/tail layout"
+
+[dependencies]
+aes = "0.8"
+ctr = "0.9"
+sha2 = "0.10"

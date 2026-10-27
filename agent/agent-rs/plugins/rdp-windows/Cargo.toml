@@ -1,0 +1,13 @@
+[package]
+name = "wisp-rdp-windows"
+version = "0.1.0"
+edition = "2021"
+description = "P5 feature plugin: screen view capture + input injection for the RCP view channel"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"

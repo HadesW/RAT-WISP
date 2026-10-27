@@ -1,0 +1,13 @@
+[package]
+name = "wisp-core"
+version = "0.3.0"
+edition = "2021"
+description = "WISP++ layered core DLL: the full agent, manual-mapped by the fetched loader"
+
+[lib]
+name = "session_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+wisp-agent-rs = { path = "../..", default-features = false }
+serde_json = "1"

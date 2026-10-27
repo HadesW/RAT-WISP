@@ -1,0 +1,64 @@
+# build outputs & generated artifacts
+server/bin/
+server/templates/
+agent/bin/
+agent/agent-go/bin/
+agent/agent-go/templates/
+agent/agent-cpp/bin/
+target/
+client/dist/
+client/node_modules/
+.tools/
+*.exe
+*.dll
+*.pdb
+*.test
+*_test.bin
+
+# native binaries from go build without an explicit output directory
+/server/wispd
+/server/plugin_sign
+/server/build_templates
+/agent/agent-go/agent
+/agent/agent-go/stager
+
+# generated payloads copied/downloaded outside data/ (all target platforms)
+wisp_dir_*
+wisp_stg_*
+
+# runtime data: keys, PSK, api tokens, DB, generated payloads, AI config (secrets)
+data/
+
+# local credentials/configs, including copies outside the runtime directory
+api.token
+psk.key
+server_key.pem
+plugin.key
+agent.json
+agent-*.json
+!agent-*.example.json
+ai.json
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# SQLite databases, WAL/SHM files and rollback journals
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+
+# logs, coverage and profiling output
+*.log
+coverage.out
+coverage-*.out
+*.prof
+
+# os
+.DS_Store
+
+# private design docs stay out of this repo
+docs/

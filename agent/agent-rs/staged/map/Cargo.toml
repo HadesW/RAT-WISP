@@ -1,0 +1,11 @@
+[package]
+name = "wisp-map"
+version = "0.3.0"
+edition = "2021"
+description = "WISP++ in-memory PE mapper (manual map: sections, relocs, imports, exception table, TLS callbacks)"
+
+[dependencies]
+
+[[bin]]
+name = "mapspike"
+path = "src/bin/mapspike.rs"

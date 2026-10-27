@@ -1,0 +1,11 @@
+{
+  "id": "demo-add",
+  "version": "1.0.0",
+  "agent": "go",
+  "kind": "wasm",
+  "entry": "exec",
+  "capabilities": ["demo.add"],
+  "mitre": [],
+  "author": "wisp",
+  "description": "ABI v0 demo: exec(a,b)=a+b"
+}

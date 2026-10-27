@@ -1,149 +1,159 @@
-# RAT-WISP
+# WISP++ (wispp)
 
-Wisp 是一个跨平台 C2 管理控制台（也可作为远程管理工具Remote Administration Tool使用），基于 Go + Wails v3 + React + TypeScript 构建。支持多协议监听、Agent 远程管理、远程桌面、文件管理等功能。
+跨平台 C2 管理控制台，Go teamserver + React 控制台 + Go/Rust 双实现 agent。
+支持 HTTP/HTTPS/TCP/RCP/KCP 监听器、多平台 payload 模板生成、文件分发、SOCKS5 / 端口转发、远程桌面、报告导出，以及可接入任意 OpenAI 兼容端点的 **AI 助手面板**。
 
-## 文档
+> **仅用于安全研究与已授权的渗透测试。** 未经授权访问他人系统属违法行为。
 
-- [English README](docs/README_EN.md)
-- [协议架构（4 类协议 / 传输矩阵 / 安全模型）](docs/PROTOCOL_ARCH.md)
-- [Agent 部署与执行流程](docs/AGENT_DEPLOYMENT.md)（直接运行 / sRDI / stager / bypass 时机）
-- [Malleable 流量伪装](docs/MALLEABLE.md)
-- [脚本 Hook 框架](docs/HOOKS.md)（lua pre/post hook、流量整形、任务改写、输出脱敏）
-- [部署说明](docs/DEPLOY.md)
-- [插件平台规划](docs/PLUGIN_PLATFORM_PLAN.md)
+## 目录结构
 
-## 截图
+```
+wispp/
+├── server/          # teamserver（wispd）：监听器 / 会话 / payload / AI 运行时
+├── agent/
+│   ├── agent-go/    # Go agent（默认，模板交叉编译 6 平台）
+│   └── agent-rs/    # Rust agent（新一代，独立 EXE / DLL）
+├── client/          # 控制台 SPA（Vite + React 19 + TS + Zustand）
+├── shared/protocol/ # 双端共享协议与加密
+└── scripts/         # dev-stack.sh 一键环境、demo / e2e 脚本
+```
 
-![主面板](pic/2026-08-09_001034.png)
+## 环境要求
 
-![远程控制1](pic/2026-08-09_002723.png)
-
-![远程控制2](pic/2026-08-09_003817.png)
-
-![文件管理](pic/2026-08-09_004432.png)
-
-![截屏](pic/2026-08-09_004840.png)
-
-## 主要功能
-
-- 多协议监听器（TCP / HTTP / HTTPS / KCP / QUIC）
-- 远程 Shell 与交互式 Shell
-- 远程桌面（RDP）+ 独立 RCP 低延迟通道（TCP / KCP）
-- 文件管理（浏览、上传、下载，分块断点聚合）
-- Payload 一键生成（agent exe/dll、sRDI shellcode、C/Go stager、DLL stager）
-- Malleable 流量伪装（自定义 URI / UA 轮换 / stage 前缀）
-- Lua / WASM Hook 脚本引擎（流量整形、任务改写、输出脱敏）
-- PSK 认证、TLS 证书固定
-- RSA + AES-256-CTR + HMAC 混合加密通信
-
-## 技术栈
-
-### 控制端（Server / GUI）
-
-| 层级 | 技术 |
+| 工具 | 版本 |
 |------|------|
-| 桌面框架 | Wails v3（Go + WebView2 / WebKitGTK） |
-| 后端 | Go 1.25 |
-| 前端 | React 19 + TypeScript + Vite |
-| 状态管理 | Zustand |
-| 数据库 | SQLite3（`github.com/mattn/go-sqlite3`） |
-| 低延迟传输 | KCP（`xtaci/kcp-go/v5`）、QUIC（`quic-go`） |
-| 脚本引擎 | gopher-lua（Hook 脚本）、wazero（WASM 插件） |
-| WebSocket | coder/websocket（前端实时推送） |
-
-### Agent（Go / Rust 双实现）
-
-| 语言 | 用途 |
-|------|------|
-| Go | 完整 agent（模板覆盖生成，多平台） |
-| **Rust** | **新一代 agent**（`agent-rust/`，编译为 DLL 反射加载 + 独立 EXE） |
-
-Rust agent 依赖：`aes`/`ctr`/`hmac`/`sha2`（Go 互操作加解密）、`rsa`（OAEP-SHA256）、`ureq`（HTTP/HTTPS）、`kcp`（可靠 UDP）、`quinn`+`tokio`+`rustls`（QUIC/TLS1.3）、`serde`、`windows-sys`（Win32 API）。
-
-## 核心协议与架构
-
-详见 [docs/PROTOCOL_ARCH.md](docs/PROTOCOL_ARCH.md) —— 项目采用 **4 类协议架构**：
-
-| 类型 | 用途 | 实现状态 |
-|------|------|----------|
-| **Type 1 主通讯** | 命令/心跳/结果轮询；HTTP / HTTPS / TCP / KCP / QUIC | ✅ 全传输 |
-| **Type 2 RCP 长连接** | 远程桌面低延迟通道（独立于轮询休眠），TCP / KCP | ✅ |
-| **Type 3 文件传输** | 分块上传/下载（512KB chunk，服务端聚合） | ✅ |
-| **Type 4 Stage 下载** | 同一步进端点 + 不同 handler 分发（raw XOR / JSON AES） | ✅ |
-
-### 安全模型
-- **混合加密**：RSA-OAEP（SHA-256）握手交换会话密钥 → AES-256-CTR + HMAC-SHA256（IV+密文+MAC，与 Go 双端互操作）
-- **PSK 认证**：注册携带预共享密钥校验
-- **TLS**：HTTPS/QUIC 自签证书 + 客户端跳过验证（会话层已加密，传输层做混淆）
-
-### Payload / 免杀技术
-- **sRDI 反射加载**（`internal/srdi`）：Go/Rust DLL 打包为位置无关 shellcode，内存执行，无磁盘落盘
-- **多态编码**（`internal/poly`）：SGN 风格自解码，每次构建产物唯一
-- **极简 C Stager**（`native/stager_stub.c`）：CS 风格 ~2.3KB 首段，PEB-walk 手解析 winsock，HTTP 拉取 stage2 后 XOR 解密跳转
-- **Stager 模板化**：EXE/DLL 预编译模板 + config 二进制 patch（哨兵定位覆写），生成时**无需 mingw 编译器**
-- **Malleable 流量伪装**：自定义 URI / UA 轮换 / stage 前缀（[docs/MALLEABLE.md](docs/MALLEABLE.md)）
-
-### 扩展框架
-- **Lua / WASM Hook**：pre/post hook 观察与改写流量、任务、输出脱敏（[docs/HOOKS.md](docs/HOOKS.md)）
-- **插件注册表**：Rust agent 按 feature 裁剪插件（shell / file / rdp / keylog / persist / evasion…）
+| Go | 1.25+ |
+| Node.js + npm | 20+ |
+| Python | 3.x（demo 脚本用） |
+| bash | Linux / macOS 自带，Windows 用 Git Bash 或 WSL |
 
 ## 快速开始
 
-**环境要求**：Go 1.25+、Node.js 18+
-
 ```bash
-cd src
+# 1) 前端依赖 + 构建（仅首次，产出 client/dist）
+cd client && npm install && npm run build && cd ..
 
-# 安装依赖并构建前端
-cd frontend && npm install && npm run build && cd ..
-go mod tidy
+# 2) 生成多平台 agent/stager 模板（产出 server/templates，约 85MB）
+cd server && go run ./cmd/build_templates && cd ..
 
-# 开发模式
-wails3 dev
-
-# 构建（Linux/macOS 用 make，Windows 用 build.bat）
-make build-app          # 或 build.bat server
-make agent              # 或 build.bat agent
-make agent-all          # 或 build.bat agent-all
-make release            # 或 build.bat release —— 把 loaders/native/scripts 资源归入 bin\
-
-# 运行
-./bin/wisp              # macOS/Linux
-bin\wisp.exe            # Windows 可直接双击
+# 3) 一键拉起：teamserver + 5 个监听器 + 2 个演示 agent
+./scripts/dev-stack.sh
 ```
 
-## 发布目录结构（bin\）
+更改配置槽读写逻辑后，需要重新编译 teamserver 和 agent 模板，再在控制台重新生成并下载 Payload。已下载的文件不会随源码更新；生成器只接受包含唯一、完整空白配置槽的模板。
 
-| 路径 | 内容 |
+脚本会编译 `server/bin/wispd` 与 `agent/bin/wisp-agent`，最后打印带令牌的地址，浏览器打开即登录：
+
+```
+http://127.0.0.1:9001/?token=<data/api.token 的内容>
+```
+
+令牌每次启动从 `data/api.token` 读取（`data/` 含密钥、PSK、SQLite，已整体 `.gitignore`）。
+
+`data/` 下的 Payload、文件收集结果、AI 配置和数据库均为本地运行数据，不应提交。复制到其他目录的生成 Payload、EXE/DLL、测试产物、常见密钥文件和本地配置同样被忽略；共享配置请使用不含真实凭据的 `.env.example` 或 `agent-*.example.json`。演示 WASM 插件及其签名仍作为测试资源跟踪。
+
+## 手动运行
+
+```bash
+# 编译
+(cd server && go build -o bin/wispd ./cmd/wispd)
+(cd agent/agent-go && go build -o ../../agent/bin/wisp-agent .)
+
+# 启动 teamserver（API + 控制台同源托管在 127.0.0.1:9001）
+server/bin/wispd \
+  -api 127.0.0.1:9001 \
+  -static client/dist \
+  -data data \
+  -templates server/templates \
+  -ai-config data/ai.json
+
+# 启动一个 agent（配置里的 servers 指向你创建的监听器）
+agent/bin/wisp-agent -config data/agent-http.json
+```
+
+teamserver **不会自行开口**：启动后在控制台「＋ 监听器」页签创建 HTTP / TCP / RCP / KCP 监听器，再在「＋ 生成」里出 payload。
+
+**载荷构建全流程**（控制台「载荷」页）：
+
+1. 选择监听器与平台；需要隐蔽性时勾选「RS 分层」（仅 `windows_amd64`，需同时有运行中的 RCP 监听器）。
+2. 设置 sleep / jitter 和备注后点「生成」。产物列表会持久化到 `data/payloads/metas.json`，重启 teamserver 后仍在。
+3. staged / RS 分层产物可设置 **stage 有效期（默认 60 分钟，可用 `-stage-ttl` 改默认）** 与 **取件次数（默认 1，`-stage-uses`）**；取件记录与加密 bundle 落在 `data/stage/`，重启后仍可继续取件。次数用尽或过期后点「↻」即可用相同 token 重新上膛，无需重新下载产物。取件路径默认 `/stage`，可用 `-stage-path` 改成中性前缀。
+4. 点击某条产物的「投递」：选择在线会话与远端路径，控制台会自动建立 Type2、用 Type3 把文件直接推到目标（无需先下载再上传），并在传输完成后可选择立即运行。
+5. 「下载」用于离线投放；「✕」删除产物、磁盘文件并撤销其 stage token。产物名为 16 位随机十六进制，默认投放目录不再包含产品字样（Windows 为 `C:\Windows\Temp\<name>`，POSIX 为 `/tmp/<name>`）。
+
+构建前置检查会直接提示缺少 HTTP / RCP 监听器或模板的情况。模板构建会写入 `go_manifest.json` / `rs_manifest.json`（git 提交、时间、逐文件 SHA-256），控制台展示模板版本并在文件与 manifest 不一致时告警；`WISP_REBUILD_TEMPLATES=1 bash scripts/dev-stack.sh` 可在起栈前重建两套模板。
+
+常用参数（`wispd -h` 查看全部）：
+
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `-api` | `127.0.0.1:9001` | 操作端 API + SPA（仅本机） |
+| `-data` | `./data` | 运行时数据（密钥 / PSK / token / DB） |
+| `-templates` | `./templates` | 预编译 agent 模板目录 |
+| `-static` | 空 | 托管 React 构建产物（`client/dist`） |
+| `-ai-config` | 空 | AI 配置 JSON，留空 = AI 关闭 |
+| `-sleep` / `-jitter` | `5000` / `30` | 新 agent 默认心跳间隔 / 抖动 |
+| `-stage-ttl` / `-stage-uses` | `60m` / `1` | staged/RS 载荷默认取件有效期 / 次数 |
+| `-stage-path` | `/stage` | stage 取件路径前缀（可改为中性路径） |
+
+## 前端开发模式
+
+两个终端：
+
+```bash
+# 终端 1：teamserver（API 在 9001）
+server/bin/wispd -api 127.0.0.1:9001 -data data -templates server/templates
+
+# 终端 2：Vite 热更新，/api 自动代理到 9001
+cd client && npm run dev
+# 打开 http://127.0.0.1:5173/?token=<data/api.token>
+```
+
+## 启用 AI 面板
+
+AI **默认关闭**，两种接法：
+
+1. **界面配置（推荐）**：聊天面板左下角「模型选择器」→「＋ 添加模型…」→ 选服务商（阿里云 / DeepSeek / OpenRouter / Ollama / vLLM / 自定义 / mock）→ 贴 Key →「验证并获取模型」→ 选模型 →「保存并使用」，热生效。
+2. **配置文件**：写 `data/ai.json` 后带 `-ai-config data/ai.json` 启动：
+
+```json
+{
+  "enabled": true,
+  "active": "默认",
+  "profiles": [
+    { "name": "默认", "provider": "openai",
+      "endpoint": "https://your-endpoint/v1",
+      "model": "your-model", "api_key": "" },
+    { "name": "离线演示", "provider": "mock", "model": "wispp-mock" }
+  ]
+}
+```
+
+- `provider: openai` = 任意 OpenAI 兼容端点（含本地 Ollama / vLLM）；`mock` 无需 Key，离线演示用。
+- **Key 建议留空**，改用环境变量注入：`WISP_AI_KEY=sk-xxx`（优先级更高，不落盘）。
+- AI 工具遵循「只读自动执行 / 写操作需审批」：`run_task`、`gen_payload`、`delete_session` 都会在面板弹窗等你批准。
+
+## 测试与检查
+
+```bash
+(cd server && go test ./...)
+(cd agent/agent-go && go test ./...)
+(cd shared/protocol && go test ./...)
+(cd client && npm run build)
+```
+
+> `server/internal/rcp` 与 `agent` 各有一个 shell 通道测试依赖 POSIX 的 `id` 命令，在 Windows 原生控制台会失败，Git Bash / Linux / macOS 下正常。
+
+## 协作
+
+多人开发统一走「功能分支 → PR → CI 全绿 + 至少 1 人评审 → merge commit 合入 `main`」，`main` 禁止直接 push，完整约定见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
+
+## 文档
+
+| 文档 | 内容 |
 |------|------|
-| `bin/wisp(.exe)` | 服务端（Wails GUI，含 shellcode/stager/脚本/运营服务） |
-| `bin/templates/` | 6 平台 agent 模板 + 2 个 DLL 模板 + **C stager EXE/DLL 预编译模板** + **Rust stager 模板**（`build.bat templates` 重新生成） |
-| `bin/payloads/` | 生成的 payload：shellcode（sRDI 各格式）、stager、agent exe/dll |
-| `bin/loaders/` | 用户 loader 模板（C / Rust / Go / PowerShell / VBA） |
-| `bin/native/` | sRDI 反射加载器 + **纯 C 极简 stager** C 源码 + 重建脚本（`build_srdi.sh` / `build_stager.sh`） |
-| `bin/scripts/` | gopher-lua 脚本引擎脚本目录 |
-| `bin/reports/` | MITRE 报告导出目录 |
-| `bin/data/` | SQLite 数据库 + RSA 密钥 + TLS 证书（运行时生成） |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | 协作规范：分支/提交/评审/安全审计 checklist |
 
-> Shellcode 能力是**按需生成**的：在 Payload 对话框选「Shellcode(sRDI)」或「分阶段(Staged)」，
-> 服务端从 `bin/templates/agent_windows_amd64.dll` 用 sRDI 打包成 shellcode 输出到 `bin/payloads/`。
-> 所以模板（templates/）是源头，shellcode 是运行时产物。
->
-> **Stager 三种实现**（Payload → 分阶段 → Stager 实现）：
-> - `Go`（默认）：完整 Go 运行时，支持 HTTPS，产物数十 KB（EXE）
-> - `C 极简`：CS 风格首段，约 2.3 KB 位置无关 shellcode（raw/b64/c/c#/ps1/py/vba/hta 任意格式），
->   仅 HTTP；stager 自行 PEB-walk 解析 winsock、GET `/stage/<token>?raw=1`、XOR 解密后跳转。
->   源码在 `bin/native/stager_stub.c`，配置（ip/port/key/path）由 `internal/stager.Build` 打补丁。
-> - `Rust`：预编译模板 + config 二进制 patch（`internal/stager.PatchRustStager`），零编译；
->   **HTTP/HTTPS 均支持**（WinINet，自签跳过），AES-GCM JSON 协议（同 Go stager），
->   GET stage → 解密 → VirtualAlloc 执行。产物 `bin/templates/stager_rust_template.exe`
->   （约 272 KB，`stager-rust/` 源码）。
->
-> **C Stager 模板化**（v2026-08）：`bin/templates/stager_c_template.exe`（17 KB）与
-> `stager_c_template.dll`（14 KB，导出 `StartStager`，DllMain 自动触发）为预编译模板，
-> 生成时用 `internal/stager.PatchTemplateBlob` 二进制 patch 哨兵 config 区（IP/port/key/path），
-> **部署/生成无需 mingw 编译器**；模板由 `cmd/gen_stager_templates` 一次性构建。
+---
 
-## 免责声明
-
-本工具仅供安全研究和授权测试使用。
+*本项目仅供安全研究与授权测试使用。*

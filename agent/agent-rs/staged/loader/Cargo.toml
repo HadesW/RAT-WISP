@@ -1,0 +1,13 @@
+[package]
+name = "wisp-loader"
+version = "0.3.0"
+edition = "2021"
+description = "WISP++ layered loader: decrypts and manual-maps the core DLL, then runs it"
+
+[lib]
+name = "session_loader"
+crate-type = ["cdylib"]
+
+[dependencies]
+wisp-staged = { path = "../common" }
+wisp-map = { path = "../map" }
