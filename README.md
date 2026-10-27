@@ -5,6 +5,16 @@
 
 > **仅用于安全研究与已授权的渗透测试。** 未经授权访问他人系统属违法行为。
 
+## 界面预览
+
+**会话列表 + AI 助手面板**（工具调用可视化、写操作审批）
+
+![会话列表与 AI 面板](docs/screenshots/console-sessions-ai.png)
+
+**会话终端**（远程 shell 页签，多会话多任务汇聚）
+
+![会话终端](docs/screenshots/console-terminal.png)
+
 ## 目录结构
 
 ```

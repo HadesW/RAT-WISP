@@ -60,5 +60,6 @@ coverage-*.out
 # os
 .DS_Store
 
-# private design docs stay out of this repo
-docs/
+# private design docs stay out of this repo; screenshots are public
+/docs/*
+!/docs/screenshots/
